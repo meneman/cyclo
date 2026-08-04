@@ -1,9 +1,12 @@
-import type { Ticker } from "pixi.js";
-import { Container, Text } from "pixi.js";
+import type { Sprite, Ticker } from "pixi.js";
+import { Assets, Container, Text } from "pixi.js";
 
+import type { CollisionMap } from "../../../../shared/collisionMap";
 import {
   INPUT_SEND_INTERVAL_MS,
   INTERPOLATION_DELAY_MS,
+  MAP_NAME,
+  MAP_RENDER_SCALE,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
@@ -13,12 +16,14 @@ import {
 } from "../../../../shared/protocol";
 import type { ServerMessage } from "../../../../shared/protocol";
 import { stepPlayer } from "../../../../shared/simulation";
-import type { PlayerState } from "../../../../shared/types";
+import type { JumpState, PlayerState } from "../../../../shared/types";
+import { loadCollisionMap } from "../../../net/collisionMapLoader";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
 
+import { createCollisionMapDebugOverlay } from "./CollisionMapDebugOverlay";
 import { PlayerEntity } from "./PlayerEntity";
 import { WorldBackground } from "./WorldBackground";
 
@@ -26,11 +31,19 @@ import { WorldBackground } from "./WorldBackground";
 const RECONCILE_LERP = 0.15;
 /** Beyond this gap we snap instead of smoothly correcting (teleport / desync) */
 const RECONCILE_SNAP_DISTANCE = 200;
+/** Camera zoom — streets are narrow at 1:1, so we render closer than actual world scale */
+const CAMERA_ZOOM = 3;
+/** Toggles the collision-map overlay + coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
+const DEBUG_TOGGLE_KEY = "Backquote";
 
 /** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
 export class GameScreen extends Container {
+  /** Assets bundles required by this screen */
+  public static assetBundles = ["main"];
+
   private readonly camera = new Container();
   private readonly hud: Text;
+  private readonly debugText: Text;
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
@@ -41,6 +54,11 @@ export class GameScreen extends Container {
   private readonly entities = new Map<string, PlayerEntity>();
   private localId: string | null = null;
   private localState: PlayerState | null = null;
+  private localJump: JumpState = { timeRemaining: 0, keyWasHeld: false };
+  private collisionMap: CollisionMap | undefined = undefined;
+  private background: WorldBackground | null = null;
+  private collisionOverlay: Sprite | null = null;
+  private debugEnabled = false;
 
   private unsubscribeMessage: (() => void) | null = null;
   private unsubscribeConnection: (() => void) | null = null;
@@ -54,7 +72,7 @@ export class GameScreen extends Container {
   constructor() {
     super();
 
-    this.camera.addChild(new WorldBackground(WORLD_WIDTH, WORLD_HEIGHT));
+    this.camera.scale.set(CAMERA_ZOOM);
     this.addChild(this.camera);
 
     this.hud = new Text({
@@ -63,6 +81,14 @@ export class GameScreen extends Container {
     });
     this.hud.position.set(12, 10);
     this.addChild(this.hud);
+
+    this.debugText = new Text({
+      text: "",
+      style: { fontFamily: "monospace", fontSize: 14, fill: 0xe6edf3 },
+    });
+    this.debugText.position.set(12, 30);
+    this.debugText.visible = false;
+    this.addChild(this.debugText);
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -76,6 +102,29 @@ export class GameScreen extends Container {
       },
     );
     this.network.connect();
+    window.addEventListener("keydown", this.onKeyDown);
+
+    void this.loadMap();
+  }
+
+  /** Loads the map background + collision mask in parallel with connecting to the server */
+  private async loadMap(): Promise<void> {
+    const [collisionMap, texture] = await Promise.all([
+      loadCollisionMap(MAP_NAME),
+      // Rasterized client-side at the same scale the collision mask was
+      // generated at, so both land on the same pixel grid (see MAP_RENDER_SCALE).
+      Assets.load({
+        src: `/maps/${MAP_NAME}/map.svg`,
+        data: { resolution: MAP_RENDER_SCALE },
+      }),
+    ]);
+    this.collisionMap = collisionMap;
+    this.background = new WorldBackground(texture, WORLD_WIDTH, WORLD_HEIGHT);
+    this.camera.addChildAt(this.background, 0);
+
+    this.collisionOverlay = createCollisionMapDebugOverlay(collisionMap);
+    this.collisionOverlay.visible = this.debugEnabled;
+    this.camera.addChildAt(this.collisionOverlay, 1);
   }
 
   public update(ticker: Ticker): void {
@@ -85,7 +134,13 @@ export class GameScreen extends Container {
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
-      stepPlayer(this.localState, currentInput, dtSeconds);
+      stepPlayer(
+        this.localState,
+        currentInput,
+        dtSeconds,
+        this.localJump,
+        this.collisionMap,
+      );
       this.entities.get(this.localState.id)?.setState(this.localState);
       this.updateCamera(this.localState.x, this.localState.y);
     }
@@ -107,6 +162,12 @@ export class GameScreen extends Container {
     }
 
     this.hud.text = `${this.connected ? "connected" : "reconnecting…"} · ${this.playerCount} player${this.playerCount === 1 ? "" : "s"}`;
+
+    if (this.debugEnabled) {
+      const x = this.localState?.x ?? 0;
+      const y = this.localState?.y ?? 0;
+      this.debugText.text = `fps ${ticker.FPS.toFixed(0)} · x ${x.toFixed(1)} y ${y.toFixed(1)}`;
+    }
   }
 
   /** Resize the screen, fired whenever window size changes */
@@ -124,22 +185,40 @@ export class GameScreen extends Container {
     this.unsubscribeConnection?.();
     this.network.disconnect();
     this.input.destroy();
+    window.removeEventListener("keydown", this.onKeyDown);
 
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
 
+    this.background?.destroy();
+    this.background = null;
+    this.collisionOverlay?.destroy();
+    this.collisionOverlay = null;
+
     this.localId = null;
     this.localState = null;
+    this.localJump = { timeRemaining: 0, keyWasHeld: false };
+    this.collisionMap = undefined;
     this.playerCount = 0;
     this.connected = false;
+    this.debugEnabled = false;
+    this.debugText.visible = false;
   }
+
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code !== DEBUG_TOGGLE_KEY) return;
+    event.preventDefault();
+    this.debugEnabled = !this.debugEnabled;
+    this.debugText.visible = this.debugEnabled;
+    if (this.collisionOverlay) this.collisionOverlay.visible = this.debugEnabled;
+  };
 
   private handleServerMessage(message: ServerMessage): void {
     switch (message.type) {
       case ServerMessageType.Welcome:
         this.localId = message.id;
         for (const player of message.players) {
-          this.spawnEntity(player, player.id === this.localId);
+          this.spawnEntity(player);
         }
         this.localState =
           message.players.find((p) => p.id === this.localId) ?? null;
@@ -147,7 +226,7 @@ export class GameScreen extends Container {
         break;
 
       case ServerMessageType.PlayerJoined:
-        this.spawnEntity(message.player, false);
+        this.spawnEntity(message.player);
         this.playerCount = this.entities.size;
         break;
 
@@ -164,9 +243,9 @@ export class GameScreen extends Container {
     }
   }
 
-  private spawnEntity(snapshot: PlayerState, isLocal: boolean): void {
+  private spawnEntity(snapshot: PlayerState): void {
     if (this.entities.has(snapshot.id)) return;
-    const entity = new PlayerEntity(snapshot, isLocal);
+    const entity = new PlayerEntity(snapshot);
     this.entities.set(snapshot.id, entity);
     this.camera.addChild(entity);
   }
@@ -193,18 +272,21 @@ export class GameScreen extends Container {
   private updateCamera(focusX: number, focusY: number): void {
     const halfW = this.viewWidth / 2;
     const halfH = this.viewHeight / 2;
+    // Half the visible world extent, in world units, at the current zoom.
+    const halfWorldW = halfW / CAMERA_ZOOM;
+    const halfWorldH = halfH / CAMERA_ZOOM;
 
     const camX =
-      WORLD_WIDTH <= this.viewWidth
+      WORLD_WIDTH <= halfWorldW * 2
         ? WORLD_WIDTH / 2
-        : clamp(focusX, halfW, WORLD_WIDTH - halfW);
+        : clamp(focusX, halfWorldW, WORLD_WIDTH - halfWorldW);
     const camY =
-      WORLD_HEIGHT <= this.viewHeight
+      WORLD_HEIGHT <= halfWorldH * 2
         ? WORLD_HEIGHT / 2
-        : clamp(focusY, halfH, WORLD_HEIGHT - halfH);
+        : clamp(focusY, halfWorldH, WORLD_HEIGHT - halfWorldH);
 
-    this.camera.x = halfW - camX;
-    this.camera.y = halfH - camY;
+    this.camera.x = halfW - camX * CAMERA_ZOOM;
+    this.camera.y = halfH - camY * CAMERA_ZOOM;
   }
 }
 

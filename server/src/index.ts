@@ -1,12 +1,14 @@
-import { WORLD_TOPIC } from "../../shared/constants";
+import { MAP_NAME, WORLD_TOPIC } from "../../shared/constants";
 import type { ClientMessage } from "../../shared/protocol";
 
+import { loadCollisionMap } from "./collisionMapLoader";
 import type { SocketData } from "./world";
 import { World } from "./world";
 
-const PORT = Number(process.env.PORT ?? 3001);
+const PORT = Number(process.env.PORT ?? 3332);
 
-const world = new World();
+const collisionMap = loadCollisionMap(MAP_NAME);
+const world = new World(collisionMap);
 
 const server = Bun.serve<SocketData>({
   port: PORT,

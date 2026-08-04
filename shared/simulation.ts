@@ -1,22 +1,35 @@
+import type { CollisionMap } from "./collisionMap";
 import {
+  COLLISION_RADIUS,
+  JUMP_DURATION_SECONDS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "./constants";
-import type { InputState, PlayerState } from "./types";
+import type { InputState, JumpState, PlayerState } from "./types";
 
 /**
  * Advances a player's position by one simulation step. Pure function of
- * (state, input, dt) so it produces identical results on the server
- * (authoritative) and on the client (local prediction) given the same input.
- * Mutates and returns `player`.
+ * (state, input, dt, jumpState, collisionMap) so it produces identical
+ * results on the server (authoritative) and on the client (local prediction)
+ * given the same input. Mutates and returns `player`.
  */
 export function stepPlayer(
   player: PlayerState,
   input: InputState,
   dtSeconds: number,
+  jumpState: JumpState,
+  collisionMap?: CollisionMap,
 ): PlayerState {
+  // Rising edge only — holding Space gives one jump, not continuous noclip.
+  if (input.jump && !jumpState.keyWasHeld && jumpState.timeRemaining <= 0) {
+    jumpState.timeRemaining = JUMP_DURATION_SECONDS;
+  }
+  jumpState.keyWasHeld = input.jump;
+  jumpState.timeRemaining = Math.max(0, jumpState.timeRemaining - dtSeconds);
+  player.jumping = jumpState.timeRemaining > 0;
+
   let dx = 0;
   let dy = 0;
   if (input.up) dy -= 1;
@@ -31,16 +44,34 @@ export function stepPlayer(
     player.rotation = Math.atan2(dy, dx);
   }
 
-  player.x = clamp(
+  const targetX = clamp(
     player.x + dx * PLAYER_SPEED * dtSeconds,
     PLAYER_RADIUS,
     WORLD_WIDTH - PLAYER_RADIUS,
   );
-  player.y = clamp(
+  const targetY = clamp(
     player.y + dy * PLAYER_SPEED * dtSeconds,
     PLAYER_RADIUS,
     WORLD_HEIGHT - PLAYER_RADIUS,
   );
+
+  // While jumping, collision is ignored entirely (still clamped to world bounds above).
+  if (player.jumping || !collisionMap) {
+    player.x = targetX;
+    player.y = targetY;
+    return player;
+  }
+
+  // Slide along walls: try the full diagonal move, then each axis alone,
+  // so bumping into a building doesn't kill movement along the street.
+  if (collisionMap.isWalkableDisc(targetX, targetY, COLLISION_RADIUS)) {
+    player.x = targetX;
+    player.y = targetY;
+  } else if (collisionMap.isWalkableDisc(targetX, player.y, COLLISION_RADIUS)) {
+    player.x = targetX;
+  } else if (collisionMap.isWalkableDisc(player.x, targetY, COLLISION_RADIUS)) {
+    player.y = targetY;
+  }
 
   return player;
 }

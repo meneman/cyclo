@@ -1,6 +1,8 @@
 import type { Server, ServerWebSocket } from "bun";
 
+import type { CollisionMap } from "../../shared/collisionMap";
 import {
+  SPAWN_CLEARANCE_RADIUS,
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   WORLD_HEIGHT,
@@ -10,7 +12,7 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
-import type { InputState, PlayerState } from "../../shared/types";
+import type { InputState, JumpState, PlayerState } from "../../shared/types";
 
 export interface SocketData {
   playerId: string;
@@ -26,6 +28,7 @@ const IDLE_INPUT: InputState = {
   down: false,
   left: false,
   right: false,
+  jump: false,
 };
 
 interface Connection {
@@ -33,6 +36,7 @@ interface Connection {
   state: PlayerState;
   input: InputState;
   lastSeq: number;
+  jump: JumpState;
 }
 
 /**
@@ -44,14 +48,23 @@ export class World {
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
 
+  constructor(private readonly collisionMap: CollisionMap) {}
+
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
+    const spawn = this.collisionMap.findNearestWalkable(
+      WORLD_WIDTH / 2,
+      WORLD_HEIGHT / 2,
+      SPAWN_CLEARANCE_RADIUS,
+    ) ?? { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+
     const state: PlayerState = {
       id,
       name: `Player-${id.slice(0, 4)}`,
-      x: WORLD_WIDTH / 2,
-      y: WORLD_HEIGHT / 2,
+      x: spawn.x,
+      y: spawn.y,
       rotation: 0,
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
+      jumping: false,
     };
 
     this.connections.set(id, {
@@ -59,6 +72,7 @@ export class World {
       state,
       input: IDLE_INPUT,
       lastSeq: 0,
+      jump: { timeRemaining: 0, keyWasHeld: false },
     });
 
     this.sendTo(ws, {
@@ -118,7 +132,13 @@ export class World {
 
     const dtSeconds = TICK_INTERVAL_MS / 1000;
     for (const connection of this.connections.values()) {
-      stepPlayer(connection.state, connection.input, dtSeconds);
+      stepPlayer(
+        connection.state,
+        connection.input,
+        dtSeconds,
+        connection.jump,
+        this.collisionMap,
+      );
     }
 
     const message: ServerMessage = {

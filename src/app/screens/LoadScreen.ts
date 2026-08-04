@@ -1,14 +1,14 @@
 import { CircularProgressBar } from "@pixi/ui";
 import { animate } from "motion";
 import type { ObjectTarget } from "motion/react";
-import { Container, Sprite, Texture } from "pixi.js";
+import { Container, Text } from "pixi.js";
 
 /** Screen shown while loading assets */
 export class LoadScreen extends Container {
   /** Assets bundles required by this screen */
   public static assetBundles = ["preload"];
-  /** The PixiJS logo */
-  private pixiLogo: Sprite;
+  /** The app title text */
+  private titleText: Text;
   /** Progress Bar */
   private progressBar: CircularProgressBar;
 
@@ -31,12 +31,18 @@ export class LoadScreen extends Container {
 
     this.addChild(this.progressBar);
 
-    this.pixiLogo = new Sprite({
-      texture: Texture.from("logo.svg"),
-      anchor: 0.5,
-      scale: 0.2,
+    this.titleText = new Text({
+      text: "bike",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 36,
+        fontWeight: "bold",
+        fill: 0xffffff,
+        align: "center",
+      },
     });
-    this.addChild(this.pixiLogo);
+    this.titleText.anchor.set(0.5);
+    this.addChild(this.titleText);
   }
 
   public onLoad(progress: number) {
@@ -45,7 +51,7 @@ export class LoadScreen extends Container {
 
   /** Resize the screen, fired whenever window size changes  */
   public resize(width: number, height: number) {
-    this.pixiLogo.position.set(width * 0.5, height * 0.5);
+    this.titleText.position.set(width * 0.5, height * 0.5);
     this.progressBar.position.set(width * 0.5, height * 0.5);
   }
 

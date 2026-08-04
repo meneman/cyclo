@@ -4,7 +4,7 @@
  * of hardcoding `localhost`) lets you open the game from another device on
  * the same network and still reach the right machine.
  */
-const WS_PORT = 3001;
+const WS_PORT = 3332;
 
 export function resolveWsUrl(): string {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";

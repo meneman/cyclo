@@ -1,6 +1,19 @@
-/** Top-down world dimensions, in world units (pixels at 1:1 zoom) */
-export const WORLD_WIDTH = 4000;
-export const WORLD_HEIGHT = 4000;
+/** Which map under public/maps/<name>/ (map.svg + collision.bin + collision.meta.json) to load */
+export const MAP_NAME = "neustadt";
+/**
+ * SVG rasterization density multiplier. Shared by the offline collision-map
+ * generator (scripts/generate-collision-map.mjs, via sharp) and the client's
+ * `Assets.load` SVG resolution option, so the background texture and the
+ * collision mask are rasterized from the same source.svg at the same scale
+ * and land on the exact same pixel grid.
+ */
+export const MAP_RENDER_SCALE = 2;
+/** maps/{MAP_NAME}/source.svg's native viewBox size, in SVG user units */
+const MAP_NATIVE_WIDTH = 1234;
+const MAP_NATIVE_HEIGHT = 924;
+/** Must match public/maps/{MAP_NAME}/collision.meta.json dimensions */
+export const WORLD_WIDTH = MAP_NATIVE_WIDTH * MAP_RENDER_SCALE;
+export const WORLD_HEIGHT = MAP_NATIVE_HEIGHT * MAP_RENDER_SCALE;
 
 /** Server simulation rate */
 export const TICK_RATE_HZ = 20;
@@ -14,7 +27,24 @@ export const INPUT_SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE_HZ;
 export const INTERPOLATION_DELAY_MS = 100;
 
 export const PLAYER_SPEED = 260; // world units per second
-export const PLAYER_RADIUS = 18;
+export const PLAYER_RADIUS = 14; // visual size (sprite, world-bound clamp)
+/**
+ * Radius used for the street-collision check — deliberately smaller than
+ * PLAYER_RADIUS, since a full-size hitbox gets stuck in the narrower streets.
+ * Keeps the bike's visual size while still fitting through tight spots.
+ */
+export const COLLISION_RADIUS = 4;
+/**
+ * Radius required when picking a *spawn* point — bigger than COLLISION_RADIUS
+ * on purpose. A point can pass the small movement-collision disc check while
+ * sitting right at a building corner with zero room to move (every direction,
+ * including diagonals, immediately pokes the disc rim into a wall). Requiring
+ * a larger clear radius here guarantees new players land somewhere with
+ * actual room, not just a technically-legal pixel.
+ */
+export const SPAWN_CLEARANCE_RADIUS = COLLISION_RADIUS * 3;
+/** How long a jump (Space) ignores collision, in seconds */
+export const JUMP_DURATION_SECONDS = 0.5;
 
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
 export const WORLD_TOPIC = "world";

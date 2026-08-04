@@ -9,6 +9,7 @@ const KEY_MAP: Record<string, keyof InputState> = {
   ArrowLeft: "left",
   KeyD: "right",
   ArrowRight: "right",
+  Space: "jump",
 };
 
 /** Tracks which movement keys are currently held down */
@@ -18,6 +19,7 @@ export class InputController {
     down: false,
     left: false,
     right: false,
+    jump: false,
   };
 
   constructor() {
