@@ -5,6 +5,7 @@ import { engine } from "../getEngine";
 const KEY_VOLUME_MASTER = "volume-master";
 const KEY_VOLUME_BGM = "volume-bgm";
 const KEY_VOLUME_SFX = "volume-sfx";
+const KEY_PLAYER_NAME = "player-name";
 
 /**
  * Persistent user settings of volumes.
@@ -47,6 +48,16 @@ class UserSettings {
   public setSfxVolume(value: number) {
     engine().audio.sfx.setVolume(value);
     storage.setNumber(KEY_VOLUME_SFX, value);
+  }
+
+  /** Get the player's saved display name, if they've set one before */
+  public getPlayerName() {
+    return storage.getString(KEY_PLAYER_NAME);
+  }
+
+  /** Set the player's display name */
+  public setPlayerName(value: string) {
+    storage.setString(KEY_PLAYER_NAME, value);
   }
 }
 

@@ -15,6 +15,8 @@ npm run dev          # Vite dev server for the client
 `npm run build` lints, type-checks, and builds the client (`vite build`). The
 server ships as plain TS run directly by Bun (`server/package.json` → `start`).
 
+Never use Claude in Chrome (browser automation) on this project.
+
 ## Structure
 
 ```

@@ -22,7 +22,9 @@ import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
+import { userSettings } from "../../utils/userSettings";
 
+import { ChatBox, CHAT_HEIGHT } from "./ChatBox";
 import { createCollisionMapDebugOverlay } from "./CollisionMapDebugOverlay";
 import { PlayerEntity } from "./PlayerEntity";
 import { WorldBackground } from "./WorldBackground";
@@ -35,6 +37,10 @@ const RECONCILE_SNAP_DISTANCE = 200;
 const CAMERA_ZOOM = 3;
 /** Toggles the collision-map overlay + coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
 const DEBUG_TOGGLE_KEY = "Backquote";
+/** Focuses the chat input — clicking it does the same */
+const CHAT_OPEN_KEY = "KeyY";
+/** Margin from the viewport edges for the chat panel */
+const CHAT_MARGIN = 16;
 
 /** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
 export class GameScreen extends Container {
@@ -44,6 +50,7 @@ export class GameScreen extends Container {
   private readonly camera = new Container();
   private readonly hud: Text;
   private readonly debugText: Text;
+  private readonly chatBox = new ChatBox();
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
@@ -89,6 +96,11 @@ export class GameScreen extends Container {
     this.debugText.position.set(12, 30);
     this.debugText.visible = false;
     this.addChild(this.debugText);
+
+    this.chatBox.onSend = (text) => {
+      this.network.send({ type: ClientMessageType.Chat, text });
+    };
+    this.addChild(this.chatBox);
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -99,6 +111,12 @@ export class GameScreen extends Container {
     this.unsubscribeConnection = this.network.onConnectionChange(
       (connected) => {
         this.connected = connected;
+        if (connected) {
+          this.network.send({
+            type: ClientMessageType.Join,
+            name: userSettings.getPlayerName() ?? "Player",
+          });
+        }
       },
     );
     this.network.connect();
@@ -128,6 +146,7 @@ export class GameScreen extends Container {
   }
 
   public update(ticker: Ticker): void {
+    this.input.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
 
@@ -174,6 +193,7 @@ export class GameScreen extends Container {
   public resize(width: number, height: number): void {
     this.viewWidth = width;
     this.viewHeight = height;
+    this.chatBox.position.set(CHAT_MARGIN, height - CHAT_HEIGHT - CHAT_MARGIN);
     if (this.localState) {
       this.updateCamera(this.localState.x, this.localState.y);
     }
@@ -206,11 +226,20 @@ export class GameScreen extends Container {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === CHAT_OPEN_KEY) {
+      if (this.chatBox.editing) return; // typing "y" into a message — don't re-trigger
+      event.preventDefault();
+      this.chatBox.focus();
+      return;
+    }
+
     if (event.code !== DEBUG_TOGGLE_KEY) return;
+    if (this.chatBox.editing) return; // typing "`" into a message
     event.preventDefault();
     this.debugEnabled = !this.debugEnabled;
     this.debugText.visible = this.debugEnabled;
-    if (this.collisionOverlay) this.collisionOverlay.visible = this.debugEnabled;
+    if (this.collisionOverlay)
+      this.collisionOverlay.visible = this.debugEnabled;
   };
 
   private handleServerMessage(message: ServerMessage): void {
@@ -239,6 +268,18 @@ export class GameScreen extends Container {
       case ServerMessageType.State:
         this.interpolator.push(message.players);
         this.reconcileLocalPlayer(message.players);
+        // Names aren't part of the predicted/interpolated movement path —
+        // the local player's Join (sent right after connect) always lands
+        // after the server's initial Welcome/PlayerJoined snapshot, so the
+        // real name only shows up once it comes back through a state tick.
+        for (const player of message.players) {
+          this.entities.get(player.id)?.setName(player.name);
+        }
+        break;
+
+      case ServerMessageType.Chat:
+        this.chatBox.receive({ name: message.name, text: message.text });
+        this.entities.get(message.id)?.showChatBubble(message.text);
         break;
     }
   }

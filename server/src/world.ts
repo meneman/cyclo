@@ -18,6 +18,8 @@ export interface SocketData {
   playerId: string;
 }
 
+const CHAT_MAX_LENGTH = 200;
+
 const PLAYER_COLORS = [
   0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b, 0xa855f7, 0xec4899, 0x14b8a6,
   0xf97316,
@@ -112,6 +114,17 @@ export class World {
         connection.state.name =
           message.name.slice(0, 24) || connection.state.name;
         break;
+      case ClientMessageType.Chat: {
+        const text = message.text.trim().slice(0, CHAT_MAX_LENGTH);
+        if (!text) break;
+        this.broadcast({
+          type: ServerMessageType.Chat,
+          id,
+          name: connection.state.name,
+          text,
+        });
+        break;
+      }
     }
   }
 

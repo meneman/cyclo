@@ -1,6 +1,6 @@
 import { setEngine } from "./app/getEngine";
-import { GameScreen } from "./app/screens/game/GameScreen";
 import { LoadScreen } from "./app/screens/LoadScreen";
+import { StartScreen } from "./app/screens/start/StartScreen";
 import { userSettings } from "./app/utils/userSettings";
 import { CreationEngine } from "./engine/engine";
 
@@ -26,6 +26,6 @@ setEngine(engine);
 
   // Show the load screen
   await engine.navigation.showScreen(LoadScreen);
-  // Show the multiplayer game screen once the load screen is dismissed
-  await engine.navigation.showScreen(GameScreen);
+  // Let the player pick a name before joining the multiplayer world
+  await engine.navigation.showScreen(StartScreen);
 })();

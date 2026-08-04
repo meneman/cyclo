@@ -22,6 +22,9 @@ export class InputController {
     jump: false,
   };
 
+  /** While disabled, held keys read as released and new key events are ignored — used while chat is focused */
+  private enabled = true;
+
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -31,12 +34,23 @@ export class InputController {
     return { ...this.state };
   }
 
+  public setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (enabled) return;
+    this.state.up = false;
+    this.state.down = false;
+    this.state.left = false;
+    this.state.right = false;
+    this.state.jump = false;
+  }
+
   public destroy(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (!this.enabled) return;
     const key = KEY_MAP[event.code];
     if (!key) return;
     this.state[key] = true;
@@ -44,6 +58,7 @@ export class InputController {
   };
 
   private readonly onKeyUp = (event: KeyboardEvent): void => {
+    if (!this.enabled) return;
     const key = KEY_MAP[event.code];
     if (!key) return;
     this.state[key] = false;
