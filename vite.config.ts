@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     port: 3331,
     open: true,
+    allowedHosts: ["cyclo.wohnli.com"],
   },
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
