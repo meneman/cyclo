@@ -9,6 +9,12 @@ export default defineConfig({
     port: 3331,
     open: true,
     allowedHosts: ["cyclo.wohnli.com"],
+    proxy: {
+      "/ws": {
+        target: "ws://localhost:3332",
+        ws: true,
+      },
+    },
   },
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
