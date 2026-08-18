@@ -30,9 +30,10 @@ import { JoystickInputController } from "../../../net/JoystickInputController";
 import { JumpButtonController } from "../../../net/JumpButtonController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
+import { isTouchDevice } from "../../utils/device";
 import { userSettings } from "../../utils/userSettings";
 
-import { ChatBox, CHAT_HEIGHT } from "./ChatBox";
+import { ChatBox } from "./ChatBox";
 import { createCollisionMapDebugOverlay } from "./CollisionMapDebugOverlay";
 import { PlayerEntity } from "./PlayerEntity";
 import { WorldBackground } from "./WorldBackground";
@@ -49,13 +50,14 @@ const CAMERA_ZOOM = 3;
 const DEBUG_TOGGLE_KEY = "Backquote";
 /** Focuses the chat input — clicking it does the same */
 const CHAT_OPEN_KEY = "KeyY";
-/** Margin from the viewport edges for the chat panel */
+/** Margin from the viewport edges for the chat panel, top-left */
 const CHAT_MARGIN = 16;
+/** Margin from the right viewport edge for the connection HUD, top-right — mirrors the chat panel on the left */
+const HUD_MARGIN = 12;
 /** Margin from the viewport edges for the touch steering pad, bottom-right */
 const JOYSTICK_MARGIN = 90;
-/** Jump button position relative to the steering pad — up and to the left, reachable by the same thumb */
-const JUMP_BUTTON_OFFSET_X = -110;
-const JUMP_BUTTON_OFFSET_Y = -20;
+/** Margin from the viewport edges for the jump button, bottom-left — its own thumb-reachable corner */
+const JUMP_BUTTON_MARGIN = 70;
 
 /** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
 export class GameScreen extends Container {
@@ -91,6 +93,9 @@ export class GameScreen extends Container {
   private playerCount = 0;
   private sendAccumulatorMs = 0;
 
+  /** Touch controls only apply on touch devices — desktop relies on the keyboard */
+  private readonly touchControlsEnabled = isTouchDevice();
+
   private viewWidth = 0;
   private viewHeight = 0;
 
@@ -100,18 +105,19 @@ export class GameScreen extends Container {
     this.camera.scale.set(CAMERA_ZOOM);
     this.addChild(this.camera);
 
+    // Anchored top-right (right-aligned) since the chat panel now occupies the top-left
     this.hud = new Text({
       text: "connecting…",
       style: { fontFamily: "monospace", fontSize: 14, fill: 0xe6edf3 },
     });
-    this.hud.position.set(12, 10);
+    this.hud.anchor.set(1, 0);
     this.addChild(this.hud);
 
     this.debugText = new Text({
       text: "",
       style: { fontFamily: "monospace", fontSize: 14, fill: 0xe6edf3 },
     });
-    this.debugText.position.set(12, 30);
+    this.debugText.anchor.set(1, 0);
     this.debugText.visible = false;
     this.addChild(this.debugText);
 
@@ -121,6 +127,11 @@ export class GameScreen extends Container {
     this.addChild(this.chatBox);
     this.addChild(this.touchInput.view);
     this.addChild(this.jumpButton.view);
+
+    // Desktop already has the keyboard — only show the on-screen controls
+    // on touch devices, where they're the only way to move/jump.
+    this.touchInput.view.visible = this.touchControlsEnabled;
+    this.jumpButton.view.visible = this.touchControlsEnabled;
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -167,8 +178,12 @@ export class GameScreen extends Container {
 
   public update(ticker: Ticker): void {
     this.input.setEnabled(!this.chatBox.editing);
-    this.touchInput.setEnabled(!this.chatBox.editing);
-    this.jumpButton.setEnabled(!this.chatBox.editing);
+    this.touchInput.setEnabled(
+      this.touchControlsEnabled && !this.chatBox.editing,
+    );
+    this.jumpButton.setEnabled(
+      this.touchControlsEnabled && !this.chatBox.editing,
+    );
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = mergeInputs(
       this.input.get(),
@@ -220,13 +235,16 @@ export class GameScreen extends Container {
   public resize(width: number, height: number): void {
     this.viewWidth = width;
     this.viewHeight = height;
-    this.chatBox.position.set(CHAT_MARGIN, height - CHAT_HEIGHT - CHAT_MARGIN);
-    const joystickX = width - JOYSTICK_MARGIN;
-    const joystickY = height - JOYSTICK_MARGIN;
-    this.touchInput.view.position.set(joystickX, joystickY);
+    this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
+    this.hud.position.set(width - HUD_MARGIN, 10);
+    this.debugText.position.set(width - HUD_MARGIN, 30);
+    this.touchInput.view.position.set(
+      width - JOYSTICK_MARGIN,
+      height - JOYSTICK_MARGIN,
+    );
     this.jumpButton.view.position.set(
-      joystickX + JUMP_BUTTON_OFFSET_X,
-      joystickY + JUMP_BUTTON_OFFSET_Y,
+      JUMP_BUTTON_MARGIN,
+      height - JUMP_BUTTON_MARGIN,
     );
     if (this.localState) {
       this.updateCamera(this.localState.x, this.localState.y);
