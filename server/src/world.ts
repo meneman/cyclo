@@ -12,13 +12,20 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
-import type { InputState, JumpState, PlayerState } from "../../shared/types";
+import type {
+  InputState,
+  JumpState,
+  MovementState,
+  PlayerState,
+} from "../../shared/types";
 
 export interface SocketData {
   playerId: string;
 }
 
 const CHAT_MAX_LENGTH = 200;
+const SYSTEM_SENDER_ID = "system";
+const SYSTEM_SENDER_NAME = "System";
 
 const PLAYER_COLORS = [
   0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b, 0xa855f7, 0xec4899, 0x14b8a6,
@@ -39,6 +46,9 @@ interface Connection {
   input: InputState;
   lastSeq: number;
   jump: JumpState;
+  movement: MovementState;
+  /** Set once this connection has sent a real name via Join — gates the join/leave chat announcements */
+  announcedName: boolean;
 }
 
 /**
@@ -75,6 +85,8 @@ export class World {
       input: IDLE_INPUT,
       lastSeq: 0,
       jump: { timeRemaining: 0, keyWasHeld: false },
+      movement: { speed: 0 },
+      announcedName: false,
     });
 
     this.sendTo(ws, {
@@ -89,8 +101,15 @@ export class World {
   }
 
   public removePlayer(id: string): void {
-    if (!this.connections.delete(id)) return;
+    const connection = this.connections.get(id);
+    if (!connection) return;
+    this.connections.delete(id);
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
+    if (connection.announcedName) {
+      this.announce(
+        `cyclist fallen off the server: "${connection.state.name}"`,
+      );
+    }
   }
 
   public handleMessage(id: string, message: ClientMessage): void {
@@ -113,6 +132,10 @@ export class World {
       case ClientMessageType.Join:
         connection.state.name =
           message.name.slice(0, 24) || connection.state.name;
+        if (!connection.announcedName) {
+          connection.announcedName = true;
+          this.announce(`new cyclist here: "${connection.state.name}"`);
+        }
         break;
       case ClientMessageType.Chat: {
         const text = message.text.trim().slice(0, CHAT_MAX_LENGTH);
@@ -150,6 +173,7 @@ export class World {
         connection.input,
         dtSeconds,
         connection.jump,
+        connection.movement,
         this.collisionMap,
       );
     }
@@ -170,6 +194,16 @@ export class World {
     message: ServerMessage,
   ): void {
     ws.send(JSON.stringify(message));
+  }
+
+  /** Broadcasts a system chat line (join/leave announcements) to everyone */
+  private announce(text: string): void {
+    this.broadcast({
+      type: ServerMessageType.Chat,
+      id: SYSTEM_SENDER_ID,
+      name: SYSTEM_SENDER_NAME,
+      text,
+    });
   }
 
   private broadcast(message: ServerMessage, excludeId?: string): void {

@@ -1,3 +1,4 @@
+import { lerpAngle } from "../../shared/angleMath";
 import type { PlayerSnapshot } from "../../shared/types";
 
 interface BufferedSnapshot {
@@ -68,9 +69,4 @@ export class SnapshotInterpolator {
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
-}
-
-function lerpAngle(a: number, b: number, t: number): number {
-  const diff = ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-  return a + diff * t;
 }

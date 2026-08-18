@@ -24,7 +24,7 @@ export class StartScreen extends Container {
     super();
 
     this.title = new Label({
-      text: "bike",
+      text: "cyclo",
       style: {
         fontFamily: "monospace",
         fontSize: 48,

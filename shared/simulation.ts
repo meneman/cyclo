@@ -3,67 +3,80 @@ import {
   COLLISION_RADIUS,
   JUMP_DURATION_SECONDS,
   PLAYER_RADIUS,
-  PLAYER_SPEED,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "./constants";
-import type { InputState, JumpState, PlayerState } from "./types";
+import { stepMovement } from "./movement";
+import type {
+  InputState,
+  JumpState,
+  MovementState,
+  PlayerState,
+} from "./types";
 
 /**
- * Advances a player's position by one simulation step. Pure function of
- * (state, input, dt, jumpState, collisionMap) so it produces identical
- * results on the server (authoritative) and on the client (local prediction)
- * given the same input. Mutates and returns `player`.
+ * Advances a player by one simulation step: jump timer -> heading/speed
+ * (shared/movement.ts) -> position integration + collision resolution. Pure
+ * function of its inputs so the server (authoritative) and the client (local
+ * prediction) produce identical results given identical state. Mutates and
+ * returns `player`.
  */
 export function stepPlayer(
   player: PlayerState,
   input: InputState,
   dtSeconds: number,
   jumpState: JumpState,
+  movement: MovementState,
   collisionMap?: CollisionMap,
 ): PlayerState {
-  // Rising edge only — holding Space gives one jump, not continuous noclip.
+  applyJump(player, input, dtSeconds, jumpState);
+  stepMovement(player, movement, input, dtSeconds);
+
+  const targetX =
+    player.x + Math.cos(player.rotation) * movement.speed * dtSeconds;
+  const targetY =
+    player.y + Math.sin(player.rotation) * movement.speed * dtSeconds;
+  resolvePosition(player, targetX, targetY, collisionMap);
+
+  return player;
+}
+
+/** Rising edge only — holding Space gives one jump, not continuous noclip. */
+function applyJump(
+  player: PlayerState,
+  input: InputState,
+  dtSeconds: number,
+  jumpState: JumpState,
+): void {
   if (input.jump && !jumpState.keyWasHeld && jumpState.timeRemaining <= 0) {
     jumpState.timeRemaining = JUMP_DURATION_SECONDS;
   }
   jumpState.keyWasHeld = input.jump;
   jumpState.timeRemaining = Math.max(0, jumpState.timeRemaining - dtSeconds);
   player.jumping = jumpState.timeRemaining > 0;
+}
 
-  let dx = 0;
-  let dy = 0;
-  if (input.up) dy -= 1;
-  if (input.down) dy += 1;
-  if (input.left) dx -= 1;
-  if (input.right) dx += 1;
+/**
+ * World-bounds clamp + wall-slide collision (try the full diagonal move,
+ * then each axis alone, so bumping into a building doesn't kill movement
+ * along the street). While jumping, collision is ignored entirely (still
+ * clamped to world bounds).
+ */
+function resolvePosition(
+  player: PlayerState,
+  rawX: number,
+  rawY: number,
+  collisionMap?: CollisionMap,
+): void {
+  const targetX = clamp(rawX, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS);
+  const targetY = clamp(rawY, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS);
 
-  if (dx !== 0 || dy !== 0) {
-    const length = Math.hypot(dx, dy);
-    dx /= length;
-    dy /= length;
-    player.rotation = Math.atan2(dy, dx);
-  }
-
-  const targetX = clamp(
-    player.x + dx * PLAYER_SPEED * dtSeconds,
-    PLAYER_RADIUS,
-    WORLD_WIDTH - PLAYER_RADIUS,
-  );
-  const targetY = clamp(
-    player.y + dy * PLAYER_SPEED * dtSeconds,
-    PLAYER_RADIUS,
-    WORLD_HEIGHT - PLAYER_RADIUS,
-  );
-
-  // While jumping, collision is ignored entirely (still clamped to world bounds above).
   if (player.jumping || !collisionMap) {
     player.x = targetX;
     player.y = targetY;
-    return player;
+    return;
   }
 
-  // Slide along walls: try the full diagonal move, then each axis alone,
-  // so bumping into a building doesn't kill movement along the street.
   if (collisionMap.isWalkableDisc(targetX, targetY, COLLISION_RADIUS)) {
     player.x = targetX;
     player.y = targetY;
@@ -72,8 +85,6 @@ export function stepPlayer(
   } else if (collisionMap.isWalkableDisc(player.x, targetY, COLLISION_RADIUS)) {
     player.y = targetY;
   }
-
-  return player;
 }
 
 function clamp(value: number, min: number, max: number): number {

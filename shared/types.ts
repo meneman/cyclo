@@ -39,3 +39,16 @@ export interface JumpState {
    *  jump, not a continuous re-trigger every tick. */
   keyWasHeld: boolean;
 }
+
+/**
+ * Per-connection movement scratch state — persistent forward speed. Heading
+ * lives in PlayerState.rotation (already synced/meaningful on its own); speed
+ * is deliberately NOT part of PlayerState/PlayerSnapshot, same reasoning as
+ * JumpState — remote players are purely snapshot-interpolated on x/y/rotation,
+ * so only the local predicted player and the server's own sim need it.
+ * Leaves room to add a lateral/slip term here later for drift.
+ */
+export interface MovementState {
+  /** Current forward speed along `rotation`, world units/sec, in [0, PLAYER_MAX_SPEED] */
+  speed: number;
+}

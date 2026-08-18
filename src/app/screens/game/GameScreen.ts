@@ -1,6 +1,7 @@
 import type { Sprite, Ticker } from "pixi.js";
 import { Assets, Container, Text } from "pixi.js";
 
+import { lerpAngle } from "../../../../shared/angleMath";
 import type { CollisionMap } from "../../../../shared/collisionMap";
 import {
   INPUT_SEND_INTERVAL_MS,
@@ -16,7 +17,11 @@ import {
 } from "../../../../shared/protocol";
 import type { ServerMessage } from "../../../../shared/protocol";
 import { stepPlayer } from "../../../../shared/simulation";
-import type { JumpState, PlayerState } from "../../../../shared/types";
+import type {
+  JumpState,
+  MovementState,
+  PlayerState,
+} from "../../../../shared/types";
 import { loadCollisionMap } from "../../../net/collisionMapLoader";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
@@ -33,6 +38,8 @@ import { WorldBackground } from "./WorldBackground";
 const RECONCILE_LERP = 0.15;
 /** Beyond this gap we snap instead of smoothly correcting (teleport / desync) */
 const RECONCILE_SNAP_DISTANCE = 200;
+/** Fraction of the local/server rotation gap corrected per state update, shortest-path aware */
+const RECONCILE_ROTATION_LERP = 0.15;
 /** Camera zoom — streets are narrow at 1:1, so we render closer than actual world scale */
 const CAMERA_ZOOM = 3;
 /** Toggles the collision-map overlay + coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
@@ -62,6 +69,7 @@ export class GameScreen extends Container {
   private localId: string | null = null;
   private localState: PlayerState | null = null;
   private localJump: JumpState = { timeRemaining: 0, keyWasHeld: false };
+  private localMovement: MovementState = { speed: 0 };
   private collisionMap: CollisionMap | undefined = undefined;
   private background: WorldBackground | null = null;
   private collisionOverlay: Sprite | null = null;
@@ -158,6 +166,7 @@ export class GameScreen extends Container {
         currentInput,
         dtSeconds,
         this.localJump,
+        this.localMovement,
         this.collisionMap,
       );
       this.entities.get(this.localState.id)?.setState(this.localState);
@@ -218,6 +227,7 @@ export class GameScreen extends Container {
     this.localId = null;
     this.localState = null;
     this.localJump = { timeRemaining: 0, keyWasHeld: false };
+    this.localMovement = { speed: 0 };
     this.collisionMap = undefined;
     this.playerCount = 0;
     this.connected = false;
@@ -308,6 +318,15 @@ export class GameScreen extends Container {
       this.localState.x += dx * RECONCILE_LERP;
       this.localState.y += dy * RECONCILE_LERP;
     }
+
+    // Rotation now has inertia (turn-rate easing), so predicted heading can
+    // drift from authoritative under different dt granularities — gently
+    // correct it too, same as position.
+    this.localState.rotation = lerpAngle(
+      this.localState.rotation,
+      authoritative.rotation,
+      RECONCILE_ROTATION_LERP,
+    );
   }
 
   private updateCamera(focusX: number, focusY: number): void {

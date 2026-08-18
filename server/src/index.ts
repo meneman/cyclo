@@ -46,7 +46,7 @@ const server = Bun.serve<SocketData>({
 
 world.start(server);
 
-console.log(`bikerun server listening on ws://localhost:${server.port}/ws`);
+console.log(`cyclo server listening on ws://localhost:${server.port}/ws`);
 
 function parseClientMessage(raw: string | Buffer): ClientMessage | null {
   if (typeof raw !== "string") return null;

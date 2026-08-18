@@ -1,4 +1,4 @@
-# bikerun
+# cyclo
 
 Top-down multiplayer prototype. PixiJS client + Bun WebSocket server, authoritative
 server simulation with client-side prediction.
