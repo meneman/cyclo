@@ -18,6 +18,7 @@ import {
 import type { ServerMessage } from "../../../../shared/protocol";
 import { stepPlayer } from "../../../../shared/simulation";
 import type {
+  InputState,
   JumpState,
   MovementState,
   PlayerState,
@@ -25,6 +26,8 @@ import type {
 import { loadCollisionMap } from "../../../net/collisionMapLoader";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
+import { JoystickInputController } from "../../../net/JoystickInputController";
+import { JumpButtonController } from "../../../net/JumpButtonController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
 import { userSettings } from "../../utils/userSettings";
@@ -48,6 +51,11 @@ const DEBUG_TOGGLE_KEY = "Backquote";
 const CHAT_OPEN_KEY = "KeyY";
 /** Margin from the viewport edges for the chat panel */
 const CHAT_MARGIN = 16;
+/** Margin from the viewport edges for the touch steering pad, bottom-right */
+const JOYSTICK_MARGIN = 90;
+/** Jump button position relative to the steering pad — up and to the left, reachable by the same thumb */
+const JUMP_BUTTON_OFFSET_X = -110;
+const JUMP_BUTTON_OFFSET_Y = -20;
 
 /** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
 export class GameScreen extends Container {
@@ -61,6 +69,8 @@ export class GameScreen extends Container {
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
+  private readonly touchInput = new JoystickInputController();
+  private readonly jumpButton = new JumpButtonController();
   private readonly interpolator = new SnapshotInterpolator(
     INTERPOLATION_DELAY_MS,
   );
@@ -109,6 +119,8 @@ export class GameScreen extends Container {
       this.network.send({ type: ClientMessageType.Chat, text });
     };
     this.addChild(this.chatBox);
+    this.addChild(this.touchInput.view);
+    this.addChild(this.jumpButton.view);
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -155,8 +167,14 @@ export class GameScreen extends Container {
 
   public update(ticker: Ticker): void {
     this.input.setEnabled(!this.chatBox.editing);
+    this.touchInput.setEnabled(!this.chatBox.editing);
+    this.jumpButton.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
-    const currentInput = this.input.get();
+    const currentInput = mergeInputs(
+      this.input.get(),
+      this.touchInput.get(),
+      this.jumpButton.get(),
+    );
 
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
@@ -203,6 +221,13 @@ export class GameScreen extends Container {
     this.viewWidth = width;
     this.viewHeight = height;
     this.chatBox.position.set(CHAT_MARGIN, height - CHAT_HEIGHT - CHAT_MARGIN);
+    const joystickX = width - JOYSTICK_MARGIN;
+    const joystickY = height - JOYSTICK_MARGIN;
+    this.touchInput.view.position.set(joystickX, joystickY);
+    this.jumpButton.view.position.set(
+      joystickX + JUMP_BUTTON_OFFSET_X,
+      joystickY + JUMP_BUTTON_OFFSET_Y,
+    );
     if (this.localState) {
       this.updateCamera(this.localState.x, this.localState.y);
     }
@@ -214,6 +239,8 @@ export class GameScreen extends Container {
     this.unsubscribeConnection?.();
     this.network.disconnect();
     this.input.destroy();
+    this.touchInput.destroy();
+    this.jumpButton.destroy();
     window.removeEventListener("keydown", this.onKeyDown);
 
     for (const entity of this.entities.values()) entity.destroy();
@@ -352,4 +379,15 @@ export class GameScreen extends Container {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/** Keyboard, joystick, and jump button each hold a subset of fields — a field counts if any source holds it */
+function mergeInputs(...inputs: InputState[]): InputState {
+  return {
+    up: inputs.some((input) => input.up),
+    down: inputs.some((input) => input.down),
+    left: inputs.some((input) => input.left),
+    right: inputs.some((input) => input.right),
+    jump: inputs.some((input) => input.jump),
+  };
 }
