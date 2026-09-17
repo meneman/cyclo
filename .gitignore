@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Secrets / local env (server PORT, deploy tokens)
+.env
+.env.*
+
+# Local databases / saves (none yet — world lives in server memory)
+*.db*
+*.db-journal
+*.db-wal
+*.db-shm
+saves/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
