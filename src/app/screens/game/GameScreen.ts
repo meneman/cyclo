@@ -1,13 +1,10 @@
-import type { Sprite, Ticker } from "pixi.js";
-import { Assets, Container, Text } from "pixi.js";
+import type { Ticker } from "pixi.js";
+import { Container, Text } from "pixi.js";
 
 import { lerpAngle } from "../../../../shared/angleMath";
-import type { CollisionMap } from "../../../../shared/collisionMap";
 import {
   INPUT_SEND_INTERVAL_MS,
   INTERPOLATION_DELAY_MS,
-  MAP_NAME,
-  MAP_RENDER_SCALE,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
@@ -23,7 +20,6 @@ import type {
   MovementState,
   PlayerState,
 } from "../../../../shared/types";
-import { loadCollisionMap } from "../../../net/collisionMapLoader";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { JoystickInputController } from "../../../net/JoystickInputController";
@@ -34,9 +30,7 @@ import { isTouchDevice } from "../../utils/device";
 import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
-import { createCollisionMapDebugOverlay } from "./CollisionMapDebugOverlay";
 import { PlayerEntity } from "./PlayerEntity";
-import { WorldBackground } from "./WorldBackground";
 
 /** Fraction of the local/server position gap corrected per state update */
 const RECONCILE_LERP = 0.15;
@@ -46,7 +40,7 @@ const RECONCILE_SNAP_DISTANCE = 200;
 const RECONCILE_ROTATION_LERP = 0.15;
 /** Camera zoom — streets are narrow at 1:1, so we render closer than actual world scale */
 const CAMERA_ZOOM = 3;
-/** Toggles the collision-map overlay + coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
+/** Toggles the coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
 const DEBUG_TOGGLE_KEY = "Backquote";
 /** Focuses the chat input — clicking it does the same */
 const CHAT_OPEN_KEY = "KeyY";
@@ -82,9 +76,6 @@ export class GameScreen extends Container {
   private localState: PlayerState | null = null;
   private localJump: JumpState = { timeRemaining: 0, keyWasHeld: false };
   private localMovement: MovementState = { speed: 0 };
-  private collisionMap: CollisionMap | undefined = undefined;
-  private background: WorldBackground | null = null;
-  private collisionOverlay: Sprite | null = null;
   private debugEnabled = false;
 
   private unsubscribeMessage: (() => void) | null = null;
@@ -152,28 +143,6 @@ export class GameScreen extends Container {
     );
     this.network.connect();
     window.addEventListener("keydown", this.onKeyDown);
-
-    void this.loadMap();
-  }
-
-  /** Loads the map background + collision mask in parallel with connecting to the server */
-  private async loadMap(): Promise<void> {
-    const [collisionMap, texture] = await Promise.all([
-      loadCollisionMap(MAP_NAME),
-      // Rasterized client-side at the same scale the collision mask was
-      // generated at, so both land on the same pixel grid (see MAP_RENDER_SCALE).
-      Assets.load({
-        src: `/maps/${MAP_NAME}/map.svg`,
-        data: { resolution: MAP_RENDER_SCALE },
-      }),
-    ]);
-    this.collisionMap = collisionMap;
-    this.background = new WorldBackground(texture, WORLD_WIDTH, WORLD_HEIGHT);
-    this.camera.addChildAt(this.background, 0);
-
-    this.collisionOverlay = createCollisionMapDebugOverlay(collisionMap);
-    this.collisionOverlay.visible = this.debugEnabled;
-    this.camera.addChildAt(this.collisionOverlay, 1);
   }
 
   public update(ticker: Ticker): void {
@@ -200,7 +169,6 @@ export class GameScreen extends Container {
         dtSeconds,
         this.localJump,
         this.localMovement,
-        this.collisionMap,
       );
       this.entities.get(this.localState.id)?.setState(this.localState);
       this.updateCamera(this.localState.x, this.localState.y);
@@ -264,16 +232,10 @@ export class GameScreen extends Container {
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
 
-    this.background?.destroy();
-    this.background = null;
-    this.collisionOverlay?.destroy();
-    this.collisionOverlay = null;
-
     this.localId = null;
     this.localState = null;
     this.localJump = { timeRemaining: 0, keyWasHeld: false };
     this.localMovement = { speed: 0 };
-    this.collisionMap = undefined;
     this.playerCount = 0;
     this.connected = false;
     this.debugEnabled = false;
@@ -293,8 +255,6 @@ export class GameScreen extends Container {
     event.preventDefault();
     this.debugEnabled = !this.debugEnabled;
     this.debugText.visible = this.debugEnabled;
-    if (this.collisionOverlay)
-      this.collisionOverlay.visible = this.debugEnabled;
   };
 
   private handleServerMessage(message: ServerMessage): void {

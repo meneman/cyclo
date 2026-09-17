@@ -1,8 +1,6 @@
 import type { Server, ServerWebSocket } from "bun";
 
-import type { CollisionMap } from "../../shared/collisionMap";
 import {
-  SPAWN_CLEARANCE_RADIUS,
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   WORLD_HEIGHT,
@@ -60,20 +58,12 @@ export class World {
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private readonly collisionMap: CollisionMap) {}
-
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
-    const spawn = this.collisionMap.findNearestWalkable(
-      WORLD_WIDTH / 2,
-      WORLD_HEIGHT / 2,
-      SPAWN_CLEARANCE_RADIUS,
-    ) ?? { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
-
     const state: PlayerState = {
       id,
       name: `Player-${id.slice(0, 4)}`,
-      x: spawn.x,
-      y: spawn.y,
+      x: WORLD_WIDTH / 2,
+      y: WORLD_HEIGHT / 2,
       rotation: 0,
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
       jumping: false,
@@ -174,7 +164,6 @@ export class World {
         dtSeconds,
         connection.jump,
         connection.movement,
-        this.collisionMap,
       );
     }
 
