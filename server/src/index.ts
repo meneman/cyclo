@@ -1,5 +1,5 @@
 import { WORLD_TOPIC } from "../../shared/constants";
-import type { ClientMessage } from "../../shared/protocol";
+import { parseClientMessage } from "../../shared/protocol";
 
 import type { SocketData } from "./world";
 import { World } from "./world";
@@ -45,12 +45,3 @@ const server = Bun.serve<SocketData>({
 world.start(server);
 
 console.log(`cyclo server listening on ws://localhost:${server.port}/ws`);
-
-function parseClientMessage(raw: string | Buffer): ClientMessage | null {
-  if (typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw) as ClientMessage;
-  } catch {
-    return null;
-  }
-}

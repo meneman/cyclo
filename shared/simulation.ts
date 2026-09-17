@@ -28,6 +28,11 @@ export function stepPlayer(
 ): PlayerState {
   applyJump(player, input, dtSeconds, jumpState);
   stepMovement(player, movement, input, dtSeconds);
+  // Mirror speed onto the synced state so snapshots carry it — without this,
+  // client prediction and the server drift apart permanently after any
+  // divergence (e.g. different frame dt), since reconciliation would only
+  // ever correct position/rotation.
+  player.speed = movement.speed;
 
   const targetX =
     player.x + Math.cos(player.rotation) * movement.speed * dtSeconds;

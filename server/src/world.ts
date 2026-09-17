@@ -67,12 +67,15 @@ export class World {
       rotation: 0,
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
       jumping: false,
+      speed: 0,
     };
 
     this.connections.set(id, {
       ws,
       state,
-      input: IDLE_INPUT,
+      // Clone: sharing the frozen-looking IDLE_INPUT reference across
+      // connections would let one mutation corrupt every idle player.
+      input: { ...IDLE_INPUT },
       lastSeq: 0,
       jump: { timeRemaining: 0, keyWasHeld: false },
       movement: { speed: 0 },
@@ -119,14 +122,15 @@ export class World {
           t: message.t,
         });
         break;
-      case ClientMessageType.Join:
-        connection.state.name =
-          message.name.slice(0, 24) || connection.state.name;
+      case ClientMessageType.Join: {
+        const name = message.name.trim().slice(0, 24);
+        if (name) connection.state.name = name;
         if (!connection.announcedName) {
           connection.announcedName = true;
           this.announce(`new cyclist here: "${connection.state.name}"`);
         }
         break;
+      }
       case ClientMessageType.Chat: {
         const text = message.text.trim().slice(0, CHAT_MAX_LENGTH);
         if (!text) break;

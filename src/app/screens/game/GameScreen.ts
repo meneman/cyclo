@@ -38,6 +38,8 @@ const RECONCILE_LERP = 0.15;
 const RECONCILE_SNAP_DISTANCE = 200;
 /** Fraction of the local/server rotation gap corrected per state update, shortest-path aware */
 const RECONCILE_ROTATION_LERP = 0.15;
+/** Fraction of the local/server speed gap corrected per state update */
+const RECONCILE_SPEED_LERP = 0.15;
 /** Camera zoom — streets are narrow at 1:1, so we render closer than actual world scale */
 const CAMERA_ZOOM = 3;
 /** Toggles the coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
@@ -182,7 +184,13 @@ export class GameScreen extends Container {
 
     this.sendAccumulatorMs += ticker.deltaMS;
     if (this.sendAccumulatorMs >= INPUT_SEND_INTERVAL_MS) {
-      this.sendAccumulatorMs = 0;
+      // Subtract (rather than zero) so the send rate doesn't sag under frame
+      // jitter; clamp after a long hitch (e.g. suspended tab) to a single
+      // catch-up send instead of a burst.
+      this.sendAccumulatorMs =
+        this.sendAccumulatorMs >= INPUT_SEND_INTERVAL_MS * 2
+          ? 0
+          : this.sendAccumulatorMs - INPUT_SEND_INTERVAL_MS;
       this.network.send({
         type: ClientMessageType.Input,
         seq: this.network.nextSeq(),
@@ -231,6 +239,7 @@ export class GameScreen extends Container {
 
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
+    this.interpolator.clear();
 
     this.localId = null;
     this.localState = null;
@@ -260,6 +269,10 @@ export class GameScreen extends Container {
   private handleServerMessage(message: ServerMessage): void {
     switch (message.type) {
       case ServerMessageType.Welcome:
+        // A reconnect issues a new player id, so stale entities and buffered
+        // snapshots from the previous session would otherwise linger as
+        // ghosts — start from a clean slate on every Welcome.
+        this.clearWorldState();
         this.localId = message.id;
         for (const player of message.players) {
           this.spawnEntity(player);
@@ -306,6 +319,17 @@ export class GameScreen extends Container {
     this.camera.addChild(entity);
   }
 
+  /** Drops all per-session world state (entities, interpolation history,
+   *  local prediction) — used on Welcome and on full reset. */
+  private clearWorldState(): void {
+    for (const entity of this.entities.values()) entity.destroy();
+    this.entities.clear();
+    this.interpolator.clear();
+    this.localState = null;
+    this.localJump = { timeRemaining: 0, keyWasHeld: false };
+    this.localMovement = { speed: 0 };
+  }
+
   /** Softly pulls the predicted local player back toward the server's authoritative position */
   private reconcileLocalPlayer(players: PlayerState[]): void {
     if (!this.localState || !this.localId) return;
@@ -332,6 +356,20 @@ export class GameScreen extends Container {
       authoritative.rotation,
       RECONCILE_ROTATION_LERP,
     );
+
+    // Speed is simulated (accel/friction/turn penalty), so it drifts the same
+    // way position does whenever client and server step with different dt.
+    // Without this correction the trajectory re-diverges after every
+    // position fix. The typeof guard tolerates servers predating the field.
+    if (typeof authoritative.speed === "number") {
+      if (distance > RECONCILE_SNAP_DISTANCE) {
+        this.localMovement.speed = authoritative.speed;
+      } else {
+        this.localMovement.speed +=
+          (authoritative.speed - this.localMovement.speed) *
+          RECONCILE_SPEED_LERP;
+      }
+    }
   }
 
   private updateCamera(focusX: number, focusY: number): void {

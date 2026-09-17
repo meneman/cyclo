@@ -28,6 +28,12 @@ export class SnapshotInterpolator {
     if (this.buffer.length > BUFFER_SIZE) this.buffer.shift();
   }
 
+  /** Drops all buffered history — required on reconnect, where the server
+   *  issues a new player id and old snapshots would otherwise render ghosts. */
+  public clear(): void {
+    this.buffer.length = 0;
+  }
+
   public sample(id: string): PlayerSnapshot | null {
     if (this.buffer.length === 0) return null;
     const renderTime = performance.now() - this.delayMs;

@@ -7,6 +7,7 @@
     "start": "npm run dev",
     "build": "npm run lint && tsc && vite build",
     "lint": "eslint .",
+    "test": "bun test",
     "dev": "vite",
     "dev:server": "cd server && bun --watch src/index.ts"
   },
