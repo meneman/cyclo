@@ -18,7 +18,7 @@ export const INPUT_SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE_HZ;
 export const INTERPOLATION_DELAY_MS = 100;
 
 /** Constant movement speed, world units per second */
-export const PLAYER_SPEED = 260;
+export const PLAYER_SPEED = 180;
 export const PLAYER_RADIUS = 14; // visual size (marker, world-bound clamp)
 
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
@@ -56,8 +56,8 @@ export const BALL_RADIUS = 1.5;
 
 /** Game gravity (u/s²) — tuned for ~1.6s hang time on a full shot, not realism */
 export const BALL_GRAVITY = 135;
-/** Launch elevation of every shot, in radians (30°) */
-export const BALL_LAUNCH_ANGLE = Math.PI / 6;
+/** Launch elevation of every shot, in radians (45°) */
+export const BALL_LAUNCH_ANGLE = Math.PI / 4;
 /** Carry (distance to the first ground contact) at minimal power, world units */
 export const BALL_MIN_CARRY = 20;
 /** Carry at full power — a tenth of the field width */
@@ -87,7 +87,7 @@ export const BALL_SUBSTEP_SECONDS = 1 / 240;
  * facing, `right` toward the player's right hand (the club side). Tune these
  * visually so the zone sits where the club head bottoms out.
  */
-export const HIT_OFFSET_FORWARD = 7;
-export const HIT_OFFSET_RIGHT = 3;
+export const HIT_OFFSET_FORWARD = 18;
+export const HIT_OFFSET_RIGHT = 6;
 /** Hit zone radius — a ball whose edge touches this circle can be hit */
-export const HIT_RADIUS = 6;
+export const HIT_RADIUS = 12;

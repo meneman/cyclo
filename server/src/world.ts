@@ -16,7 +16,12 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
-import type { BallState, InputState, PlayerState } from "../../shared/types";
+import type {
+  BallState,
+  InputState,
+  PlayerState,
+  HoleState,
+} from "../../shared/types";
 
 export interface SocketData {
   playerId: string;
@@ -55,9 +60,22 @@ interface Connection {
 export class World {
   private readonly connections = new Map<string, Connection>();
   private readonly balls = new Map<string, BallState>();
+  private readonly holes = new Map<string, HoleState>();
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
+
+  constructor() {
+    for (let i = 0; i < 30; i++) {
+      const id = `hole-${i}`;
+      this.holes.set(id, {
+        id,
+        x: Math.random() * WORLD_WIDTH,
+        y: Math.random() * WORLD_HEIGHT,
+        radius: 30 + Math.random() * 20,
+      });
+    }
+  }
 
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
     const state: PlayerState = {
@@ -100,6 +118,7 @@ export class World {
       world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       players: this.snapshot(),
       balls: this.ballSnapshot(),
+      holes: this.holeSnapshot(),
     });
 
     this.broadcast({ type: ServerMessageType.PlayerJoined, player: state }, id);
@@ -193,12 +212,14 @@ export class World {
         const hittable = findHittableBall(
           connection.state,
           this.balls.values(),
+          30, // Forgiveness: absorb network prediction desync
         );
         if (hittable) {
           strikeBall(
             hittable,
             connection.state,
             connection.state.swingPower ?? 1,
+            (connection.state.swingSpin ?? 0) * 120 // Spin value maps to curve strength
           );
         }
       }
@@ -224,6 +245,7 @@ export class World {
       type: ServerMessageType.State,
       players: this.snapshot(),
       balls: this.ballSnapshot(),
+      holes: this.holeSnapshot(),
     };
     server.publish(WORLD_TOPIC, JSON.stringify(message));
   }
@@ -234,6 +256,10 @@ export class World {
 
   private ballSnapshot(): BallState[] {
     return Array.from(this.balls.values(), (b) => ({ ...b }));
+  }
+
+  private holeSnapshot(): HoleState[] {
+    return Array.from(this.holes.values(), (h) => ({ ...h }));
   }
 
   private sendTo(

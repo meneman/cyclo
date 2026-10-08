@@ -24,6 +24,9 @@ const CHAT_BUBBLE_DURATION_MS = 5000;
  * from `WorldScene.project()`.
  */
 export class PlayerEntity extends Container {
+  private readonly mainUi = new Container();
+  private readonly edgeIndicator = new Graphics();
+
   private readonly nameLabel: Text;
   private chatBubble: Container | null = null;
   private chatBubbleTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -50,7 +53,7 @@ export class PlayerEntity extends Container {
     });
     this.nameLabel.anchor.set(0.5, 1);
     this.nameLabel.y = -HEAD_OFFSET_PX;
-    this.addChild(this.nameLabel);
+    this.mainUi.addChild(this.nameLabel);
 
     this.loadBubble = new Container();
     this.loadBubble.y = -LOAD_BUBBLE_OFFSET_PX;
@@ -74,12 +77,36 @@ export class PlayerEntity extends Container {
       this.loadBubbleBar,
       this.loadBubbleText,
     );
-    this.addChild(this.loadBubble);
+    this.mainUi.addChild(this.loadBubble);
+
+    this.edgeIndicator.visible = false;
+    this.edgeIndicator
+      .moveTo(12, 0)
+      .lineTo(-8, 8)
+      .lineTo(-8, -8)
+      .closePath()
+      .fill({ color: 0xffffff, alpha: 0.9 })
+      .stroke({ color: 0x000000, width: 2 });
+    // Offset the arrow slightly so it's not exactly on the border
+
+    this.addChild(this.mainUi);
+    this.addChild(this.edgeIndicator);
   }
 
-  public setScreenPosition(x: number, y: number): void {
+  public setScreenPosition(
+    x: number,
+    y: number,
+    isOffScreen: boolean = false,
+    angle: number = 0,
+  ): void {
     this.x = x;
     this.y = y;
+
+    this.mainUi.visible = !isOffScreen;
+    this.edgeIndicator.visible = isOffScreen;
+    if (isOffScreen) {
+      this.edgeIndicator.rotation = angle;
+    }
   }
 
   public setName(name: string): void {
@@ -118,7 +145,7 @@ export class PlayerEntity extends Container {
     const bubble = new Container();
     bubble.addChild(bg, label);
     bubble.y = -HEAD_OFFSET_PX - 20;
-    this.addChild(bubble);
+    this.mainUi.addChild(bubble);
 
     this.chatBubble = bubble;
     this.chatBubbleTimeout = setTimeout(
@@ -137,6 +164,8 @@ export class PlayerEntity extends Container {
     charge: number,
     swingPower: number,
     swingSeq: number,
+    spinCharge: number = 0,
+    swingSpin: number = 0,
   ): void {
     if (charge > 0) {
       if (this.loadBubbleTimeout) {
@@ -144,14 +173,14 @@ export class PlayerEntity extends Container {
         this.loadBubbleTimeout = null;
       }
       this.loadBubble.visible = true;
-      this.drawLoadBubble(charge, false);
+      this.drawLoadBubble(charge, false, spinCharge);
       return;
     }
 
     if (swingSeq > this.lastSeenSwingSeq && swingPower > 0) {
       this.lastSeenSwingSeq = swingSeq;
       this.loadBubble.visible = true;
-      this.drawLoadBubble(swingPower, true);
+      this.drawLoadBubble(swingPower, true, swingSpin);
       if (this.loadBubbleTimeout) {
         clearTimeout(this.loadBubbleTimeout);
       }
@@ -167,7 +196,7 @@ export class PlayerEntity extends Container {
     }
   }
 
-  private drawLoadBubble(power: number, isRelease: boolean): void {
+  private drawLoadBubble(power: number, isRelease: boolean, spin: number): void {
     const clamped = Math.min(Math.max(power, 0), 1);
     const w = METER_WIDTH;
     const h = METER_HEIGHT;
@@ -198,11 +227,19 @@ export class PlayerEntity extends Container {
         .fill({ color: barColor, alpha: 0.95 });
     }
 
-    this.loadBubbleText.text = isRelease
+    let text = isRelease
       ? `${Math.round(clamped * 100)}%`
       : clamped >= 0.99
         ? "MAX"
         : `${Math.round(clamped * 100)}%`;
+        
+    if (spin < -0.05) {
+      text = `⟲ ` + text;
+    } else if (spin > 0.05) {
+      text = text + ` ⟳`;
+    }
+    
+    this.loadBubbleText.text = text;
   }
 
   public destroy(...args: Parameters<Container["destroy"]>): void {

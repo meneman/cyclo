@@ -86,3 +86,10 @@ pass. The server ships as plain TS run directly by Bun — no server build step.
    leave `docs/local/MANUAL_TESTS.md` alone.
 4. Queue and execute the work through the kanban skills (`todo-intake-kanban`
    → `todo-next-kanban`), moving cards with `kanban-move-card`.
+
+### C. When working on the View (Three.js + PixiJS Stacked Architecture)
+
+1. The client uses a dual-renderer setup: Three.js handles the 3D world, while PixiJS handles the 2D UI overlay.
+2. **Three.js (`WorldScene.ts`)**: Edit this when modifying 3D geometry, environments, player models, meshes, or animations.
+3. **PixiJS (`GameScreen.ts`, `PlayerEntity.ts`)**: Edit this when modifying floating UI, chat bubbles, health/load bars, HUD, or text. Do NOT attempt to render crisp dynamic text or complex 2D UI inside the Three.js scene.
+4. **The Bridge**: The PixiJS UI layer maps 3D coordinates to 2D screen space using `worldScene.project(x, y)` to lock UI elements (like name tags) over their respective 3D entities. When creating UI that tracks the game world, project its coordinates and update its PixiJS position inside the `GameScreen.ts` update loop.

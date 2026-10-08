@@ -1,4 +1,4 @@
-import type { BallState, InputState, PlayerSnapshot } from "./types";
+import type { BallState, InputState, PlayerSnapshot, HoleState } from "./types";
 
 /**
  * Plain string-literal unions instead of TS enums: safe under `isolatedModules`
@@ -40,13 +40,23 @@ export function sanitizeInputState(value: unknown): InputState {
     typeof value === "object" && value !== null
       ? (value as Record<string, unknown>)
       : {};
-  return {
+      
+  const state: InputState = {
     up: Boolean(record.up),
     down: Boolean(record.down),
     left: Boolean(record.left),
     right: Boolean(record.right),
     charging: Boolean(record.charging),
   };
+
+  if (typeof record.aimDx === "number" && Number.isFinite(record.aimDx)) {
+    state.aimDx = record.aimDx;
+  }
+  if (typeof record.aimDy === "number" && Number.isFinite(record.aimDy)) {
+    state.aimDy = record.aimDy;
+  }
+
+  return state;
 }
 
 /**
@@ -107,11 +117,13 @@ export type ServerMessage =
       world: { width: number; height: number };
       players: PlayerSnapshot[];
       balls: BallState[];
+      holes: HoleState[];
     }
   | {
       type: typeof ServerMessageType.State;
       players: PlayerSnapshot[];
       balls: BallState[];
+      holes: HoleState[];
     }
   | { type: typeof ServerMessageType.PlayerJoined; player: PlayerSnapshot }
   | { type: typeof ServerMessageType.PlayerLeft; id: string }

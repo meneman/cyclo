@@ -60,13 +60,15 @@ export function isOnGround(ball: BallState): boolean {
  * The ball the player's club would strike right now: the grounded ball
  * nearest to the hit point whose edge overlaps the hit zone, else null
  * (a whiff). Any player can hit any ball.
+ * @param forgiveness Extra radius padding (e.g. for server to absorb network desync)
  */
 export function findHittableBall(
   player: PlayerState,
   balls: Iterable<BallState>,
+  forgiveness: number = 0,
 ): BallState | null {
   const point = hitPoint(player);
-  const reach = HIT_RADIUS + BALL_RADIUS;
+  const reach = HIT_RADIUS + BALL_RADIUS + forgiveness;
   let best: BallState | null = null;
   let bestDistance = Infinity;
   for (const ball of balls) {
@@ -124,6 +126,7 @@ export function strikeBall(
   ball: BallState,
   hitter: PlayerState,
   power: number,
+  spin: number = 0,
 ): BallState {
   const velocity = launchVelocity(facingOf(hitter), carryForPower(power));
   ball.vx = velocity.vx;
@@ -133,6 +136,7 @@ export function strikeBall(
   ball.resting = false;
   ball.hitSeq += 1;
   ball.lastHitBy = hitter.id;
+  ball.spin = spin;
   return ball;
 }
 
@@ -155,6 +159,7 @@ export function createBall(
     vz: 0,
     resting: true,
     hitSeq: 0,
+    spin: 0,
   };
 }
 
@@ -173,41 +178,89 @@ export function stepBall(ball: BallState, dtSeconds: number): BallState {
   return ball;
 }
 
+/**
+ * Extensible physics solver using Semi-Implicit Euler integration.
+ * 1. Accumulate forces (Gravity, Magnus effect, Rolling friction).
+ * 2. Integrate velocity (v += a * dt).
+ * 3. Check stopping conditions.
+ * 4. Integrate position (p += v * dt).
+ * 5. Resolve constraints (Bounces, Walls).
+ */
 function substep(ball: BallState, h: number): void {
-  if (ball.z > 0 || ball.vz > 0) {
-    // Airborne: exact constant-gravity integration for this step.
-    ball.x += ball.vx * h;
-    ball.y += ball.vy * h;
-    ball.z += ball.vz * h - 0.5 * BALL_GRAVITY * h * h;
-    ball.vz -= BALL_GRAVITY * h;
-    if (ball.z <= 0) {
-      ball.z = 0;
-      if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
-        ball.vz = -ball.vz * BALL_RESTITUTION;
-        ball.vx *= BALL_BOUNCE_FRICTION;
-        ball.vy *= BALL_BOUNCE_FRICTION;
-      } else {
-        ball.vz = 0;
+  // 1. Accumulate Forces (as acceleration)
+  let ax = 0;
+  let ay = 0;
+  let az = 0;
+
+  const isAirborne = ball.z > 0 || ball.vz > 0;
+
+  if (isAirborne) {
+    az -= BALL_GRAVITY;
+
+    // Arcade Magnus effect (curve)
+    if (ball.spin) {
+      const horizontalSpeed = Math.hypot(ball.vx, ball.vy);
+      if (horizontalSpeed > 0) {
+        // Curve force is perpendicular to velocity: (-vy, vx) curves right
+        const dirX = -ball.vy / horizontalSpeed;
+        const dirY = ball.vx / horizontalSpeed;
+        const curveAccel = ball.spin;
+        ax += dirX * curveAccel;
+        ay += dirY * curveAccel;
       }
     }
   } else {
-    // Rolling: constant deceleration until it stops.
-    ball.z = 0;
-    ball.vz = 0;
+    // Rolling friction
     const speed = Math.hypot(ball.vx, ball.vy);
-    const next = speed - BALL_ROLL_DECEL * h;
-    if (speed <= BALL_REST_SPEED || next <= 0) {
+    if (speed > 0) {
+      const dirX = ball.vx / speed;
+      const dirY = ball.vy / speed;
+      ax -= dirX * BALL_ROLL_DECEL;
+      ay -= dirY * BALL_ROLL_DECEL;
+    }
+  }
+
+  // 2. Integrate Velocity (Semi-Implicit Euler)
+  ball.vx += ax * h;
+  ball.vy += ay * h;
+  ball.vz += az * h;
+
+  // 3. Stop Condition Check (Rolling)
+  if (!isAirborne) {
+    const newSpeed = Math.hypot(ball.vx, ball.vy);
+    // If friction reversed our velocity direction or we fell below rest speed, stop.
+    // (A simple check for reversing direction is if the new speed implies overshooting 0,
+    // but since we decelerate by constant amount, if a*h > old_speed, we reversed).
+    const accelMagnitude = BALL_ROLL_DECEL * h;
+    const oldSpeed = Math.hypot(ball.vx - ax * h, ball.vy - ay * h);
+    if (newSpeed <= BALL_REST_SPEED || accelMagnitude >= oldSpeed) {
       ball.vx = 0;
       ball.vy = 0;
+      ball.vz = 0;
+      ball.z = 0;
+      ball.spin = 0;
       ball.resting = true;
       return;
     }
-    const scale = next / speed;
-    ball.vx *= scale;
-    ball.vy *= scale;
-    ball.x += ball.vx * h;
-    ball.y += ball.vy * h;
   }
+
+  // 4. Integrate Position
+  ball.x += ball.vx * h;
+  ball.y += ball.vy * h;
+  ball.z += ball.vz * h;
+
+  // 5. Constraints / Collisions
+  if (ball.z <= 0 && isAirborne) {
+    ball.z = 0;
+    if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
+      ball.vz = -ball.vz * BALL_RESTITUTION;
+      ball.vx *= BALL_BOUNCE_FRICTION;
+      ball.vy *= BALL_BOUNCE_FRICTION;
+    } else {
+      ball.vz = 0;
+    }
+  }
+
   bounceOffWalls(ball);
 }
 

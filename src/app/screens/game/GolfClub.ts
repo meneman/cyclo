@@ -7,12 +7,12 @@ import * as THREE from "three";
  * Dimensions are in the local coordinate space of the Quaternius armature
  * hand bone (PalmR), which has an effective 100x scale relative to model space.
  */
-const gripGeometry = new THREE.CylinderGeometry(0.045, 0.038, 0.42, 8);
-const gripCapGeometry = new THREE.CylinderGeometry(0.048, 0.045, 0.04, 8);
-const ferruleGeometry = new THREE.CylinderGeometry(0.039, 0.039, 0.03, 8);
-const shaftGeometry = new THREE.CylinderGeometry(0.028, 0.02, 1.55, 8);
-const hoselGeometry = new THREE.CylinderGeometry(0.022, 0.026, 0.1, 8);
-const headGeometry = new THREE.BoxGeometry(0.1, 0.14, 0.32);
+const gripGeometry = new THREE.CylinderGeometry(0.09, 0.076, 0.42, 8);
+const gripCapGeometry = new THREE.CylinderGeometry(0.096, 0.09, 0.04, 8);
+const ferruleGeometry = new THREE.CylinderGeometry(0.078, 0.078, 0.03, 8);
+const shaftGeometry = new THREE.CylinderGeometry(0.056, 0.04, 1.55, 8);
+const hoselGeometry = new THREE.CylinderGeometry(0.044, 0.052, 0.1, 8);
+const headGeometry = new THREE.BoxGeometry(0.2, 0.14, 0.32);
 
 /** Matte dark rubber grip material */
 const gripMaterial = new THREE.MeshStandardMaterial({

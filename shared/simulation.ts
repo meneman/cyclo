@@ -60,11 +60,25 @@ export function stepPlayer(
       1,
       currentCharge + dtSeconds / MAX_CHARGE_DURATION_SECONDS,
     );
+    
+    const spinDir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const currentSpin = player.spinCharge ?? 0;
+    player.spinCharge = Math.max(
+      -1,
+      Math.min(1, currentSpin + spinDir * 1.5 * dtSeconds)
+    );
+
+    if (input.aimDx !== undefined && input.aimDy !== undefined) {
+      player.facingX = input.aimDx;
+      player.facingY = input.aimDy;
+    }
   } else if ((player.charge ?? 0) > 0) {
     // Releasing space executes the swing
     player.swingPower = player.charge;
+    player.swingSpin = player.spinCharge;
     player.swingSeq = (player.swingSeq ?? 0) + 1;
     player.charge = 0;
+    player.spinCharge = 0;
     player.impactTimer = IMPACT_DELAY_SECONDS;
   } else {
     const direction = directionFromInput(input);

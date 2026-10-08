@@ -9,7 +9,7 @@ import {
   WORLD_WIDTH,
 } from "../../../../shared/constants";
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
-import type { PlayerState } from "../../../../shared/types";
+import type { PlayerState, HoleState } from "../../../../shared/types";
 import type { RenderBall } from "../../../net/BallPredictor";
 
 import type { CharacterTemplate } from "./CharacterRoster";
@@ -131,6 +131,7 @@ export class WorldScene {
   private readonly fieldTexture: THREE.Texture;
   private readonly fieldMaterial: THREE.MeshStandardMaterial;
   private readonly balls = new Map<string, THREE.Group>();
+  private readonly holeMeshes = new Map<string, THREE.Mesh>();
   private readonly rangeIndicator: THREE.Mesh;
   private readonly rangeMaterial: THREE.MeshBasicMaterial;
   private readonly rangeGeometry: THREE.RingGeometry;
@@ -364,6 +365,31 @@ export class WorldScene {
     }
   }
 
+  public syncHoles(holeStates: HoleState[]): void {
+    const alive = new Set<string>();
+    for (const h of holeStates) {
+      alive.add(h.id);
+      let mesh = this.holeMeshes.get(h.id);
+      if (!mesh) {
+        const geom = new THREE.CircleGeometry(h.radius, 32);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(h.x, -h.y, 0.01);
+        this.scene.add(mesh);
+        this.holeMeshes.set(h.id, mesh);
+      } else {
+        mesh.position.set(h.x, -h.y, 0.01);
+      }
+    }
+
+    for (const [id, mesh] of this.holeMeshes) {
+      if (!alive.has(id)) {
+        this.scene.remove(mesh);
+        this.holeMeshes.delete(id);
+      }
+    }
+  }
+
   public updateLocalIndicators(
     player: PlayerState | null,
     hittableBallAvailable: boolean,
@@ -469,6 +495,10 @@ export class WorldScene {
       this.scene.remove(group);
     }
     this.balls.clear();
+    for (const mesh of this.holeMeshes.values()) {
+      this.scene.remove(mesh);
+    }
+    this.holeMeshes.clear();
     this.rangeIndicator.visible = false;
     this.landingMarker.visible = false;
   }

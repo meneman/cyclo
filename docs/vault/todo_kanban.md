@@ -6,13 +6,49 @@ kanban-plugin: board
 
 ## todo
 
-- [ ] Probe card (delete me)
+- [ ] Rename `PlayerEntity` to `PlayerOverlay` for role clarity
+    - Scope: Clarify architecture boundaries by renaming Pixi's screen-space overlay class to reflect that it is purely a 2D UI overlay (names, meters, chat bubbles, edge pointers), not the character simulation entity.
+    - Implementation:
+        - Rename `src/app/screens/game/PlayerEntity.ts` to `src/app/screens/game/PlayerOverlay.ts`.
+        - Rename class `PlayerEntity` to `PlayerOverlay`.
+        - In `src/app/screens/game/GameScreen.ts`:
+            - Update import to `PlayerOverlay`.
+            - Rename collection `this.entities` to `this.playerOverlays`.
+            - Rename `placeLabel` to `updatePlayerOverlay`.
+            - Rename helper `spawnEntity` to `spawnPlayerOverlay`.
+        - Update doc references in `README.md` and `.agents/skills/cyclo-manager/SKILL.md`.
+        - Verify with `bun test` and typecheck via `tsc`.
+
+- [ ] Decouple DOM canvas stacking from `WorldScene.ts` into declarative CSS
+    - Scope: Remove leaky DOM mutation from `WorldScene.ts` where it queries `#pixi-container canvas` and imperatively sets inline styles (`position`, `zIndex`) and cleans them up on destroy.
+    - Implementation:
+        - In `index.html`: Add dedicated `#three-container` element inside `#app` before `#pixi-container`.
+        - In `public/style.css`: Set declarative stacking rules:
+            - Both `#three-container` and `#pixi-container` positioned absolute / full viewport.
+            - `#three-container` at `z-index: 0`.
+            - `#pixi-container` at `z-index: 1` with transparent background so 3D shows through.
+        - In `src/app/screens/game/WorldScene.ts`:
+            - Mount `renderer.domElement` into `#three-container` (or accept mount container in constructor) instead of `document.body.appendChild`.
+            - Remove `document.querySelector("#pixi-container canvas")` style modifications from constructor.
+            - In `destroy()`: Simply remove canvas from container and dispose renderer; remove the Pixi canvas style-reset hack.
+        - Verify with `bun test` and manual browser check.
 
 ## progress
 
 ## waiting
 
 ## done
+
+- [ ] Viewport dimension consistency in `GameScreen.ts` & edge indicators
+    - Scope: Fix desynchronization between Pixi's logical resolution (`app.renderer.width`/`height`) and window dimensions (`window.innerWidth`/`innerHeight`) in `GameScreen.ts`.
+    - Problem: When the window is smaller than `minWidth: 1024` / `minHeight: 600`, Pixi scales CSS canvas size while keeping logical buffer >= 1024x600. `WorldScene.project()` centers at `(viewWidth / 2, viewHeight / 2)`, but `GameScreen.placeLabel()` was reading `window.innerWidth / 2`, causing off-screen clamping and angle calculations to be offset toward top-left.
+    - Implementation:
+        - `src/app/screens/game/GameScreen.ts`: Add `viewportWidth = 0` and `viewportHeight = 0` state variables.
+        - `resize(width, height)`: Store `this.viewportWidth = width` and `this.viewportHeight = height` when called by `CreationNavigationPlugin`.
+        - `prepare()`: Ensure initial fallback dimensions align before first resize fires.
+        - `placeLabel()`: Use `this.viewportWidth` and `this.viewportHeight` instead of `window.innerWidth` and `window.innerHeight`.
+        - Verify with `bun test` and typecheck via `tsc`.
+    - Erledigt 2026-10-08: In `GameScreen.ts` `viewportWidth` und `viewportHeight` hinzugefügt, in `prepare()` initialisiert, in `resize()` synchronisiert und in `reset()` aufgeräumt. `placeLabel()` klemmt Indikatoren nun konsistent gegen die logische Viewport-Größe ab. `bun test` (52/52 Tests grün) und `tsc` fehlerfrei. Manuelle Checkliste in `docs/local/MANUAL_TESTS.md` hinterlegt.
 
 - [ ] Movement: replace 8-way heading with speed + steer (2 controls)
     - Keyboard: Up = hold-to-gas (accelerate per PLAYER_ACCELERATION), release = coast to stop per PLAYER_FRICTION; Down = brake harder and reverse slowly; Left/Right = rotate only, no strafing/desired-heading

@@ -58,9 +58,9 @@ describe("ballPhysics", () => {
       facingY: 1, // Facing south
     };
     const hp = hitPoint(player);
-    // facing (0, 1), offset forward 7, offset right 3 => x: 100 - 1*3 = 97, y: 100 + 7 = 107
-    assert.equal(hp.x, 97);
-    assert.equal(hp.y, 107);
+    // facing (0, 1), offset forward 18, offset right 6 => x: 100 - 1*6 = 94, y: 100 + 18 = 118
+    assert.equal(hp.x, 94);
+    assert.equal(hp.y, 118);
   });
 
   test("findHittableBall detects grounded balls in zone and ignores airborne balls", () => {

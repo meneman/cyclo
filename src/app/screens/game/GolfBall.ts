@@ -149,7 +149,7 @@ export function updateGolfBallVisual(group: THREE.Group, z: number): void {
 
   const height = Math.max(0, z);
   ball.position.z = GOLF_BALL_RADIUS + height;
-  const ballScale = 1.0 + 0.4 * Math.min(1, height / 35);
+  const ballScale = 1.0 + 1.5 * Math.min(1, height / 75);
   ball.scale.setScalar(ballScale);
 
   const heightFade = Math.max(0, 1 - height / 50);

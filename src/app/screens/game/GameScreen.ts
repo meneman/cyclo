@@ -20,6 +20,7 @@ import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
+import { engine } from "../../getEngine";
 import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
@@ -55,6 +56,8 @@ export class GameScreen extends Container {
   public static assetBundles: string[] = [];
 
   private worldScene: WorldScene | null = null;
+  private viewportWidth = 0;
+  private viewportHeight = 0;
   private readonly hud: Text;
   private readonly debugText: Text;
   private readonly chatBox = new ChatBox();
@@ -108,8 +111,12 @@ export class GameScreen extends Container {
   /** Called by Navigation right after the screen is added to the stage */
   public prepare(): void {
     console.info(`[cyclo:game] prepare, ws=${resolveWsUrl()}`);
+    const initialWidth = engine()?.renderer?.width ?? window.innerWidth;
+    const initialHeight = engine()?.renderer?.height ?? window.innerHeight;
+    this.viewportWidth = initialWidth;
+    this.viewportHeight = initialHeight;
     this.worldScene = new WorldScene();
-    this.worldScene.setSize(window.innerWidth, window.innerHeight);
+    this.worldScene.setSize(initialWidth, initialHeight);
     this.input.onChange = (newInput) => {
       this.sendInput(newInput);
     };
@@ -147,6 +154,20 @@ export class GameScreen extends Container {
     this.input.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
+    
+    if (currentInput.charging && this.localState) {
+      const { sx, sy } = this.worldScene.project(this.localState.x, this.localState.y);
+      const mx = this.input.pointerX;
+      const my = this.input.pointerY;
+      const dx = mx - sx;
+      const dy = my - sy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.001) {
+        currentInput.aimDx = dx / dist;
+        currentInput.aimDy = dy / dist;
+      }
+    }
+
     const isMoving = directionFromInput(currentInput) !== null;
 
     if (this.localState) {
@@ -175,6 +196,8 @@ export class GameScreen extends Container {
           this.localState.charge ?? 0,
           this.localState.swingPower ?? 0,
           this.localState.swingSeq ?? 0,
+          this.localState.spinCharge ?? 0,
+          this.localState.swingSpin ?? 0,
         );
     }
 
@@ -204,6 +227,8 @@ export class GameScreen extends Container {
             sample.charge ?? 0,
             sample.swingPower ?? 0,
             sample.swingSeq ?? 0,
+            sample.spinCharge ?? 0,
+            sample.swingSpin ?? 0,
           );
       }
     }
@@ -247,6 +272,8 @@ export class GameScreen extends Container {
 
   /** Resize the screen, fired whenever window size changes */
   public resize(width: number, height: number): void {
+    this.viewportWidth = width;
+    this.viewportHeight = height;
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
     this.debugText.position.set(width - HUD_MARGIN, 30);
@@ -270,6 +297,8 @@ export class GameScreen extends Container {
     this.worldScene?.destroy();
     this.worldScene = null;
 
+    this.viewportWidth = 0;
+    this.viewportHeight = 0;
     this.localId = null;
     this.localState = null;
     this.playerCount = 0;
@@ -307,6 +336,7 @@ export class GameScreen extends Container {
         this.localId = message.id;
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncBalls(this.ballPredictor.getBalls());
+        this.worldScene?.syncHoles(message.holes);
         for (const player of message.players) {
           this.spawnEntity(player);
         }
@@ -351,6 +381,7 @@ export class GameScreen extends Container {
         this.lastStateAt = now;
         this.interpolator.push(message.players);
         this.ballPredictor.onSnapshot(message.balls);
+        this.worldScene?.syncHoles(message.holes);
         this.reconcileLocalPlayer(message.players);
         // Names aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
@@ -395,8 +426,36 @@ export class GameScreen extends Container {
   /** Positions a player's overlay label from its world position */
   private placeLabel(id: string, x: number, y: number): void {
     if (!this.worldScene) return;
-    const { sx, sy } = this.worldScene.project(x, y);
-    this.entities.get(id)?.setScreenPosition(sx, sy);
+    let { sx, sy } = this.worldScene.project(x, y);
+
+    const isLocal = id === this.localId;
+    let isOffScreen = false;
+    let angle = 0;
+
+    if (!isLocal) {
+      const padding = 20;
+      const w = this.viewportWidth || window.innerWidth;
+      const h = this.viewportHeight || window.innerHeight;
+
+      const cw = w / 2;
+      const ch = h / 2;
+      const vx = sx - cw;
+      const vy = sy - ch;
+
+      if (Math.abs(vx) > cw - padding || Math.abs(vy) > ch - padding) {
+        isOffScreen = true;
+        angle = Math.atan2(vy, vx);
+
+        const tx = (cw - padding) / (Math.abs(vx) || 1);
+        const ty = (ch - padding) / (Math.abs(vy) || 1);
+        const t = Math.min(tx, ty);
+
+        sx = cw + vx * t;
+        sy = ch + vy * t;
+      }
+    }
+
+    this.entities.get(id)?.setScreenPosition(sx, sy, isOffScreen, angle);
   }
 
   private sendInput(input: InputState): void {

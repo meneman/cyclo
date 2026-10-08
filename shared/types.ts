@@ -19,6 +19,10 @@ export interface InputState {
   right: boolean;
   /** Space — holding charges the swing power */
   charging: boolean;
+  /** Mouse aim direction (unit vector X) */
+  aimDx?: number;
+  /** Mouse aim direction (unit vector Y) */
+  aimDy?: number;
 }
 
 /** Authoritative per-player simulation state, shared verbatim between server and client */
@@ -30,8 +34,12 @@ export interface PlayerState {
   color: number;
   /** Current swing charge from 0 (not charging) to 1 (full charge) */
   charge?: number;
+  /** Current spin charge from -1 (left) to 1 (right) */
+  spinCharge?: number;
   /** Power of the most recently executed swing (0 to 1) */
   swingPower?: number;
+  /** Spin of the most recently executed swing (-1 to 1) */
+  swingSpin?: number;
   /** Monotonic counter incremented on every swing release */
   swingSeq?: number;
   /**
@@ -69,4 +77,13 @@ export interface BallState {
   /** Increments on every hit — clients use it to trigger hit effects */
   hitSeq: number;
   lastHitBy?: string;
+  /** Arcade spin: negative curves left, positive curves right during flight */
+  spin?: number;
+}
+
+export interface HoleState {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
 }
