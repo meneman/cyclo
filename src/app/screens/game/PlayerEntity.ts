@@ -1,4 +1,4 @@
-import { Assets, Container, Graphics, Sprite, Text, Texture } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 
 import { PLAYER_RADIUS } from "../../../../shared/constants";
 import type { PlayerSnapshot } from "../../../../shared/types";
@@ -6,9 +6,9 @@ import type { PlayerSnapshot } from "../../../../shared/types";
 /** How long a chat bubble stays above a player before fading out */
 const CHAT_BUBBLE_DURATION_MS = 5000;
 
-/** Visual representation of one player using the custom transparent cyclist sprite */
+/** Visual representation of one player: a colored marker circle + name label */
 export class PlayerEntity extends Container {
-  private readonly bikeSprite: Sprite;
+  private readonly marker: Graphics;
   private readonly nameLabel: Text;
   private chatBubble: Container | null = null;
   private chatBubbleTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -16,22 +16,10 @@ export class PlayerEntity extends Container {
   constructor(snapshot: PlayerSnapshot) {
     super();
 
-    // Player bike sprite from loaded asset
-    const texture =
-      Assets.get("player.png") ??
-      Assets.get("main/player.png") ??
-      Texture.from("player.png");
-
-    this.bikeSprite = new Sprite(texture);
-    this.bikeSprite.anchor.set(0.5, 0.5);
-
-    // Scale bike to fit player collision radius (~58px long)
-    const targetLength = PLAYER_RADIUS * 3.2;
-    const currentWidth = this.bikeSprite.texture.width || 243;
-    const scale = targetLength / currentWidth;
-    this.bikeSprite.scale.set(scale);
-
-    this.addChild(this.bikeSprite);
+    this.marker = new Graphics()
+      .circle(0, 0, PLAYER_RADIUS)
+      .fill({ color: snapshot.color });
+    this.addChild(this.marker);
 
     this.nameLabel = new Text({
       text: snapshot.name,
@@ -50,17 +38,17 @@ export class PlayerEntity extends Container {
     this.setState(snapshot);
   }
 
-  public setState(
-    snapshot: Pick<PlayerSnapshot, "x" | "y" | "rotation" | "jumping">,
-  ): void {
+  public setState(snapshot: Pick<PlayerSnapshot, "x" | "y">): void {
     this.x = snapshot.x;
     this.y = snapshot.y;
-    this.bikeSprite.rotation = snapshot.rotation;
-    this.alpha = snapshot.jumping ? 0.5 : 1;
   }
 
   public setName(name: string): void {
     this.nameLabel.text = name;
+  }
+
+  public setColor(color: number): void {
+    this.marker.clear().circle(0, 0, PLAYER_RADIUS).fill({ color });
   }
 
   /** Shows a speech bubble above the player, replacing any that's still showing */

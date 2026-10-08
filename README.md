@@ -37,7 +37,7 @@ src/net/
 
 src/app/screens/game/
   GameScreen.ts       owns network/input/interpolation, prediction + reconciliation, camera
-  PlayerEntity.ts     bike sprite + name label
+  PlayerEntity.ts     marker circle + name label
 ```
 
 `src/app/screens/main/` (MainScreen, Bouncer, Logo) and `LoadScreen` are leftover
@@ -62,16 +62,16 @@ PixiJS project-template scaffolding. `MainScreen` is **not wired up** —
   `RECONCILE_SNAP_DISTANCE` (200 units, e.g. after reconnect).
 - **Remote players**: never predicted. `SnapshotInterpolator` buffers incoming
   snapshots and renders `INTERPOLATION_DELAY_MS` (100ms) behind "now", interpolating
-  position and angle between the two bracketing snapshots. Trades 100ms latency
+  position between the two bracketing snapshots. Trades 100ms latency
   for smooth motion despite the server's 20Hz tick + network jitter.
 - **Camera**: follows the predicted local player, clamped to world bounds.
 
 ## World
 
-There is no map — the game starts on a black canvas (`#000000`) and players
-move freely in an open arena (`WORLD_WIDTH` × `WORLD_HEIGHT`,
-`shared/constants.ts`). `stepPlayer()` (`shared/simulation.ts`) integrates
-position from heading + speed and clamps to the world bounds; new players
+There is no map — players move freely in an open area (`WORLD_WIDTH` ×
+`WORLD_HEIGHT`, `shared/constants.ts`). `stepPlayer()`
+(`shared/simulation.ts`) moves at a constant speed along the held input
+direction (diagonals normalized) and clamps to the world bounds; new players
 spawn at the world center.
 
 ## Known gaps

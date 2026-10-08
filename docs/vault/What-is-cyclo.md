@@ -1,6 +1,6 @@
 # What is cyclo
 
-**cyclo** is a top-down multiplayer prototype: players ride bikes around a
+**cyclo** is a top-down multiplayer prototype: players move around a
 shared world, each seeing the others move in near-real time.
 
 ## Why it exists
@@ -25,7 +25,7 @@ source of truth.
 
 1. Start the server (`npm run dev:server`, `ws://localhost:3332/ws`).
 2. Start the client (`npm run dev`) and open it in two browser windows.
-3. Ride with the keyboard; each window predicts locally and converges on the
-   server snapshots.
+3. Move with the keyboard (WASD/arrows); each window predicts locally and
+   converges on the server snapshots.
 
 Related: [[README]] (vault landing page) · `Decisions/` · `Playtests/`

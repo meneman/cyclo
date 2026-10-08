@@ -2,81 +2,49 @@ import assert from "node:assert/strict";
 import { describe, test } from "bun:test";
 
 import {
-  PLAYER_FRICTION,
-  PLAYER_MAX_SPEED,
-  TICK_INTERVAL_MS,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
 } from "./constants";
 import { stepPlayer } from "./simulation";
-import type {
-  InputState,
-  JumpState,
-  MovementState,
-  PlayerState,
-} from "./types";
+import type { InputState, PlayerState } from "./types";
 
-const HELD: InputState = {
-  up: true,
-  down: false,
-  left: false,
-  right: false,
-  jump: false,
-};
-const IDLE: InputState = {
-  up: false,
-  down: false,
-  left: false,
-  right: false,
-  jump: false,
-};
+const RIGHT: InputState = { up: false, down: false, left: false, right: true };
+const IDLE: InputState = { up: false, down: false, left: false, right: false };
 
-function makePlayer(): PlayerState {
-  return {
-    id: "p1",
-    name: "p1",
-    x: 1000,
-    y: 1000,
-    rotation: 0,
-    color: 0xffffff,
-    jumping: false,
-    speed: 0,
-  };
+function makePlayer(x = 600, y = 450): PlayerState {
+  return { id: "p1", name: "p1", x, y, color: 0xffffff };
 }
 
 describe("stepPlayer", () => {
-  test("mirrors movement speed onto player.speed for network sync", () => {
+  test("moves at constant speed along the held axis", () => {
     const player = makePlayer();
-    const jump: JumpState = { timeRemaining: 0, keyWasHeld: false };
-    const movement: MovementState = { speed: 0 };
-    stepPlayer(player, HELD, TICK_INTERVAL_MS / 1000, jump, movement);
-    assert.ok(player.speed > 0, "expected speed to increase while input held");
-    assert.equal(
-      player.speed,
-      movement.speed,
-      "player.speed must mirror the authoritative movement speed",
-    );
+    stepPlayer(player, RIGHT, 0.05);
+    assert.equal(player.x, 600 + PLAYER_SPEED * 0.05);
+    assert.equal(player.y, 450);
   });
 
-  test("decays speed toward zero with no input (friction)", () => {
+  test("stays put with no input", () => {
     const player = makePlayer();
-    const jump: JumpState = { timeRemaining: 0, keyWasHeld: false };
-    const movement: MovementState = { speed: PLAYER_MAX_SPEED };
-    player.speed = PLAYER_MAX_SPEED;
-    const dt = TICK_INTERVAL_MS / 1000;
-    stepPlayer(player, IDLE, dt, jump, movement);
-    assert.equal(player.speed, PLAYER_MAX_SPEED - PLAYER_FRICTION * dt);
+    stepPlayer(player, IDLE, 0.05);
+    assert.deepEqual({ x: player.x, y: player.y }, { x: 600, y: 450 });
   });
 
-  test("jump triggers on rising edge only", () => {
+  test("normalizes diagonal movement", () => {
     const player = makePlayer();
-    const jump: JumpState = { timeRemaining: 0, keyWasHeld: false };
-    const movement: MovementState = { speed: 0 };
-    const dt = TICK_INTERVAL_MS / 1000;
-    const jumping: InputState = { ...IDLE, jump: true };
-    stepPlayer(player, jumping, dt, jump, movement);
-    assert.equal(player.jumping, true);
-    // Holding space must not re-trigger once the window expires.
-    jump.timeRemaining = 0;
-    stepPlayer(player, jumping, dt, jump, movement);
-    assert.equal(player.jumping, false);
+    stepPlayer(player, { up: false, down: true, left: false, right: true }, 1);
+    const expected = PLAYER_SPEED / Math.SQRT2;
+    assert.ok(Math.abs(player.x - (600 + expected)) < 1e-9);
+    assert.ok(Math.abs(player.y - (450 + expected)) < 1e-9);
+  });
+
+  test("clamps to the world bounds", () => {
+    const player = makePlayer(WORLD_WIDTH - PLAYER_RADIUS, WORLD_HEIGHT / 2);
+    stepPlayer(player, RIGHT, 1);
+    assert.equal(player.x, WORLD_WIDTH - PLAYER_RADIUS);
+    const top = makePlayer(100, PLAYER_RADIUS);
+    stepPlayer(top, { up: true, down: false, left: false, right: false }, 1);
+    assert.equal(top.y, PLAYER_RADIUS);
   });
 });

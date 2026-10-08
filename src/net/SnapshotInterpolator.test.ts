@@ -5,16 +5,7 @@ import type { PlayerSnapshot } from "../../shared/types";
 import { SnapshotInterpolator } from "./SnapshotInterpolator";
 
 function snapshot(id: string, x: number): PlayerSnapshot {
-  return {
-    id,
-    name: id,
-    x,
-    y: 0,
-    rotation: 0,
-    color: 0xffffff,
-    jumping: false,
-    speed: 0,
-  };
+  return { id, name: id, x, y: 0, color: 0xffffff };
 }
 
 describe("SnapshotInterpolator", () => {

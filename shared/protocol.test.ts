@@ -6,14 +6,8 @@ import { parseClientMessage, sanitizeInputState } from "./protocol";
 describe("sanitizeInputState", () => {
   test("coerces arbitrary values to booleans", () => {
     assert.deepEqual(
-      sanitizeInputState({
-        up: 1,
-        down: 0,
-        left: "x",
-        right: null,
-        jump: undefined,
-      }),
-      { up: true, down: false, left: true, right: false, jump: false },
+      sanitizeInputState({ up: 1, down: 0, left: "x", right: null }),
+      { up: true, down: false, left: true, right: false },
     );
   });
 
@@ -23,14 +17,21 @@ describe("sanitizeInputState", () => {
       down: false,
       left: false,
       right: false,
-      jump: false,
     });
     assert.deepEqual(sanitizeInputState({}), {
       up: false,
       down: false,
       left: false,
       right: false,
-      jump: false,
+    });
+  });
+
+  test("drops legacy drive fields (gas/brake/jump semantics are gone)", () => {
+    assert.deepEqual(sanitizeInputState({ gas: true, brake: true }), {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
     });
   });
 });

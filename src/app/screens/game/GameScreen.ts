@@ -1,7 +1,6 @@
 import type { Ticker } from "pixi.js";
-import { Container, Text } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 
-import { lerpAngle } from "../../../../shared/angleMath";
 import {
   INPUT_SEND_INTERVAL_MS,
   INTERPOLATION_DELAY_MS,
@@ -14,19 +13,11 @@ import {
 } from "../../../../shared/protocol";
 import type { ServerMessage } from "../../../../shared/protocol";
 import { stepPlayer } from "../../../../shared/simulation";
-import type {
-  InputState,
-  JumpState,
-  MovementState,
-  PlayerState,
-} from "../../../../shared/types";
+import type { PlayerState } from "../../../../shared/types";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
-import { JoystickInputController } from "../../../net/JoystickInputController";
-import { JumpButtonController } from "../../../net/JumpButtonController";
 import { NetworkClient } from "../../../net/NetworkClient";
 import { SnapshotInterpolator } from "../../../net/SnapshotInterpolator";
-import { isTouchDevice } from "../../utils/device";
 import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
@@ -36,11 +27,7 @@ import { PlayerEntity } from "./PlayerEntity";
 const RECONCILE_LERP = 0.15;
 /** Beyond this gap we snap instead of smoothly correcting (teleport / desync) */
 const RECONCILE_SNAP_DISTANCE = 200;
-/** Fraction of the local/server rotation gap corrected per state update, shortest-path aware */
-const RECONCILE_ROTATION_LERP = 0.15;
-/** Fraction of the local/server speed gap corrected per state update */
-const RECONCILE_SPEED_LERP = 0.15;
-/** Camera zoom — streets are narrow at 1:1, so we render closer than actual world scale */
+/** Camera zoom — renders closer than actual world scale */
 const CAMERA_ZOOM = 3;
 /** Toggles the coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
 const DEBUG_TOGGLE_KEY = "Backquote";
@@ -50,10 +37,10 @@ const CHAT_OPEN_KEY = "KeyY";
 const CHAT_MARGIN = 16;
 /** Margin from the right viewport edge for the connection HUD, top-right — mirrors the chat panel on the left */
 const HUD_MARGIN = 12;
-/** Margin from the viewport edges for the touch steering pad, bottom-right */
-const JOYSTICK_MARGIN = 90;
-/** Margin from the viewport edges for the jump button, bottom-left — its own thumb-reachable corner */
-const JUMP_BUTTON_MARGIN = 70;
+/** World background fill — dark so the colored player markers stand out */
+const WORLD_FILL = 0x111827;
+/** HUD/debug text fill */
+const HUD_FILL = 0xe6edf3;
 
 /** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
 export class GameScreen extends Container {
@@ -61,14 +48,14 @@ export class GameScreen extends Container {
   public static assetBundles = ["main"];
 
   private readonly camera = new Container();
+  /** Plain world background — lives in the camera layer behind the player entities. */
+  private readonly worldLayer = new Graphics();
   private readonly hud: Text;
   private readonly debugText: Text;
   private readonly chatBox = new ChatBox();
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
-  private readonly touchInput = new JoystickInputController();
-  private readonly jumpButton = new JumpButtonController();
   private readonly interpolator = new SnapshotInterpolator(
     INTERPOLATION_DELAY_MS,
   );
@@ -76,8 +63,6 @@ export class GameScreen extends Container {
   private readonly entities = new Map<string, PlayerEntity>();
   private localId: string | null = null;
   private localState: PlayerState | null = null;
-  private localJump: JumpState = { timeRemaining: 0, keyWasHeld: false };
-  private localMovement: MovementState = { speed: 0 };
   private debugEnabled = false;
 
   private unsubscribeMessage: (() => void) | null = null;
@@ -86,9 +71,6 @@ export class GameScreen extends Container {
   private playerCount = 0;
   private sendAccumulatorMs = 0;
 
-  /** Touch controls only apply on touch devices — desktop relies on the keyboard */
-  private readonly touchControlsEnabled = isTouchDevice();
-
   private viewWidth = 0;
   private viewHeight = 0;
 
@@ -96,19 +78,22 @@ export class GameScreen extends Container {
     super();
 
     this.camera.scale.set(CAMERA_ZOOM);
+    // World backdrop first, so player entities spawn in front of it.
+    this.camera.addChild(this.worldLayer);
+    this.drawWorld();
     this.addChild(this.camera);
 
     // Anchored top-right (right-aligned) since the chat panel now occupies the top-left
     this.hud = new Text({
       text: "connecting…",
-      style: { fontFamily: "monospace", fontSize: 14, fill: 0xe6edf3 },
+      style: { fontFamily: "monospace", fontSize: 14, fill: HUD_FILL },
     });
     this.hud.anchor.set(1, 0);
     this.addChild(this.hud);
 
     this.debugText = new Text({
       text: "",
-      style: { fontFamily: "monospace", fontSize: 14, fill: 0xe6edf3 },
+      style: { fontFamily: "monospace", fontSize: 14, fill: HUD_FILL },
     });
     this.debugText.anchor.set(1, 0);
     this.debugText.visible = false;
@@ -118,13 +103,6 @@ export class GameScreen extends Container {
       this.network.send({ type: ClientMessageType.Chat, text });
     };
     this.addChild(this.chatBox);
-    this.addChild(this.touchInput.view);
-    this.addChild(this.jumpButton.view);
-
-    // Desktop already has the keyboard — only show the on-screen controls
-    // on touch devices, where they're the only way to move/jump.
-    this.touchInput.view.visible = this.touchControlsEnabled;
-    this.jumpButton.view.visible = this.touchControlsEnabled;
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -149,29 +127,13 @@ export class GameScreen extends Container {
 
   public update(ticker: Ticker): void {
     this.input.setEnabled(!this.chatBox.editing);
-    this.touchInput.setEnabled(
-      this.touchControlsEnabled && !this.chatBox.editing,
-    );
-    this.jumpButton.setEnabled(
-      this.touchControlsEnabled && !this.chatBox.editing,
-    );
     const dtSeconds = ticker.deltaMS / 1000;
-    const currentInput = mergeInputs(
-      this.input.get(),
-      this.touchInput.get(),
-      this.jumpButton.get(),
-    );
+    const currentInput = this.input.get();
 
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
-      stepPlayer(
-        this.localState,
-        currentInput,
-        dtSeconds,
-        this.localJump,
-        this.localMovement,
-      );
+      stepPlayer(this.localState, currentInput, dtSeconds);
       this.entities.get(this.localState.id)?.setState(this.localState);
       this.updateCamera(this.localState.x, this.localState.y);
     }
@@ -214,14 +176,6 @@ export class GameScreen extends Container {
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
     this.debugText.position.set(width - HUD_MARGIN, 30);
-    this.touchInput.view.position.set(
-      width - JOYSTICK_MARGIN,
-      height - JOYSTICK_MARGIN,
-    );
-    this.jumpButton.view.position.set(
-      JUMP_BUTTON_MARGIN,
-      height - JUMP_BUTTON_MARGIN,
-    );
     if (this.localState) {
       this.updateCamera(this.localState.x, this.localState.y);
     }
@@ -233,8 +187,6 @@ export class GameScreen extends Container {
     this.unsubscribeConnection?.();
     this.network.disconnect();
     this.input.destroy();
-    this.touchInput.destroy();
-    this.jumpButton.destroy();
     window.removeEventListener("keydown", this.onKeyDown);
 
     for (const entity of this.entities.values()) entity.destroy();
@@ -243,8 +195,7 @@ export class GameScreen extends Container {
 
     this.localId = null;
     this.localState = null;
-    this.localJump = { timeRemaining: 0, keyWasHeld: false };
-    this.localMovement = { speed: 0 };
+    this.drawWorld();
     this.playerCount = 0;
     this.connected = false;
     this.debugEnabled = false;
@@ -273,6 +224,7 @@ export class GameScreen extends Container {
         // snapshots from the previous session would otherwise linger as
         // ghosts — start from a clean slate on every Welcome.
         this.clearWorldState();
+        this.drawWorld();
         this.localId = message.id;
         for (const player of message.players) {
           this.spawnEntity(player);
@@ -296,12 +248,13 @@ export class GameScreen extends Container {
       case ServerMessageType.State:
         this.interpolator.push(message.players);
         this.reconcileLocalPlayer(message.players);
-        // Names aren't part of the predicted/interpolated movement path —
+        // Names/colors aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
         // after the server's initial Welcome/PlayerJoined snapshot, so the
         // real name only shows up once it comes back through a state tick.
         for (const player of message.players) {
           this.entities.get(player.id)?.setName(player.name);
+          this.entities.get(player.id)?.setColor(player.color);
         }
         break;
 
@@ -326,8 +279,13 @@ export class GameScreen extends Container {
     this.entities.clear();
     this.interpolator.clear();
     this.localState = null;
-    this.localJump = { timeRemaining: 0, keyWasHeld: false };
-    this.localMovement = { speed: 0 };
+    this.drawWorld();
+  }
+
+  /** Redraws the plain world background. */
+  private drawWorld(): void {
+    this.worldLayer.clear();
+    this.worldLayer.rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill(WORLD_FILL);
   }
 
   /** Softly pulls the predicted local player back toward the server's authoritative position */
@@ -346,29 +304,6 @@ export class GameScreen extends Container {
     } else if (distance > 0.5) {
       this.localState.x += dx * RECONCILE_LERP;
       this.localState.y += dy * RECONCILE_LERP;
-    }
-
-    // Rotation now has inertia (turn-rate easing), so predicted heading can
-    // drift from authoritative under different dt granularities — gently
-    // correct it too, same as position.
-    this.localState.rotation = lerpAngle(
-      this.localState.rotation,
-      authoritative.rotation,
-      RECONCILE_ROTATION_LERP,
-    );
-
-    // Speed is simulated (accel/friction/turn penalty), so it drifts the same
-    // way position does whenever client and server step with different dt.
-    // Without this correction the trajectory re-diverges after every
-    // position fix. The typeof guard tolerates servers predating the field.
-    if (typeof authoritative.speed === "number") {
-      if (distance > RECONCILE_SNAP_DISTANCE) {
-        this.localMovement.speed = authoritative.speed;
-      } else {
-        this.localMovement.speed +=
-          (authoritative.speed - this.localMovement.speed) *
-          RECONCILE_SPEED_LERP;
-      }
     }
   }
 
@@ -395,15 +330,4 @@ export class GameScreen extends Container {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-/** Keyboard, joystick, and jump button each hold a subset of fields — a field counts if any source holds it */
-function mergeInputs(...inputs: InputState[]): InputState {
-  return {
-    up: inputs.some((input) => input.up),
-    down: inputs.some((input) => input.down),
-    left: inputs.some((input) => input.left),
-    right: inputs.some((input) => input.right),
-    jump: inputs.some((input) => input.jump),
-  };
 }

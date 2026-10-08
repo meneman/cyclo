@@ -1,4 +1,3 @@
-import { lerpAngle } from "../../shared/angleMath";
 import type { PlayerSnapshot } from "../../shared/types";
 
 interface BufferedSnapshot {
@@ -68,7 +67,6 @@ export class SnapshotInterpolator {
       ...b,
       x: lerp(a.x, b.x, t),
       y: lerp(a.y, b.y, t),
-      rotation: lerpAngle(a.rotation, b.rotation, t),
     };
   }
 }

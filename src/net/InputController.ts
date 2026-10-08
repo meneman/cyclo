@@ -1,5 +1,6 @@
 import type { InputState } from "../../shared/types";
 
+/** Keyboard movement mapping: W/Up, S/Down, A/Left, D/Right */
 const KEY_MAP: Record<string, keyof InputState> = {
   KeyW: "up",
   ArrowUp: "up",
@@ -9,7 +10,6 @@ const KEY_MAP: Record<string, keyof InputState> = {
   ArrowLeft: "left",
   KeyD: "right",
   ArrowRight: "right",
-  Space: "jump",
 };
 
 /** Tracks which movement keys are currently held down */
@@ -19,7 +19,6 @@ export class InputController {
     down: false,
     left: false,
     right: false,
-    jump: false,
   };
 
   /** While disabled, held keys read as released and new key events are ignored — used while chat is focused */
@@ -41,7 +40,6 @@ export class InputController {
     this.state.down = false;
     this.state.left = false;
     this.state.right = false;
-    this.state.jump = false;
   }
 
   public destroy(): void {

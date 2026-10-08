@@ -45,7 +45,6 @@ export function sanitizeInputState(value: unknown): InputState {
     down: Boolean(record.down),
     left: Boolean(record.left),
     right: Boolean(record.right),
-    jump: Boolean(record.jump),
   };
 }
 

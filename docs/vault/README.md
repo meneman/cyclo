@@ -12,7 +12,7 @@ client-side prediction).
 3. Select this folder: `docs/vault`
 
 > Settings live in `.obsidian/` and are versioned in the repo. The board in
-> `Untitled Kanban.md` needs the `obsidian-kanban` community plugin (already
+> `todo_kanban.md` needs the `obsidian-kanban` community plugin (already
 > configured).
 
 ## What goes here?
@@ -31,7 +31,7 @@ server's memory — this vault is for notes, research, and overview around it.
 ## Structure
 
 - [[What-is-cyclo]] – purpose, scope boundaries, typical play flow
-- `Untitled Kanban.md` – task board (`todo` / `progress` / `waiting` / `done`;
+- `todo_kanban.md` – task board (`todo` / `progress` / `waiting` / `done`;
   edited via the kanban agent skills, never hand-edited in source mode)
 
 Suggested structure as it grows:

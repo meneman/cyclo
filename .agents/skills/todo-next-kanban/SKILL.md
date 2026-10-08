@@ -5,7 +5,7 @@ description: Pick exactly ONE open card from the todo list of the Obsidian Kanba
 
 # TODO next (Kanban)
 
-Advances the Obsidian Kanban board `docs/vault/Untitled Kanban.md` by exactly
+Advances the Obsidian Kanban board `docs/vault/todo_kanban.md` by exactly
 one card per invocation: choose the single best next card from the `todo`
 list, move it to `progress` while working, implement it completely, move it
 to `done` with a completion note. Only exception: if the card gets blocked
@@ -24,7 +24,7 @@ card is a new invocation of this skill, not a continuation of this one.
 
 ## Board format
 
-- File: `docs/vault/Untitled Kanban.md` (format of the
+- File: `docs/vault/todo_kanban.md` (format of the
   community-archive/obsidian-kanban plugin).
 - Frontmatter contains `kanban-plugin: board`.
 - Each `## heading` (`todo`, `progress`, `waiting`, `done`) is a list.
@@ -42,7 +42,7 @@ card is a new invocation of this skill, not a continuation of this one.
 
 ## Steps
 
-1. **Read `docs/vault/Untitled Kanban.md` in full.** Collect every open card
+1. **Read `docs/vault/todo_kanban.md` in full.** Collect every open card
    (`- [ ]`) in the `todo` list with its indented sub-bullets — those
    sub-bullets are the spec, written by a prior `todo-intake-kanban` pass
    specifically so this step doesn't need to re-ask the user anything.

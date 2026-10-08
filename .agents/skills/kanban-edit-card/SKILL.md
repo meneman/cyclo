@@ -5,7 +5,7 @@ description: Legt eine neue Karte im Obsidian-Kanban-Board an oder erweitert ein
 
 # Kanban Edit Card
 
-Legt eine neue Karte im Board `docs/vault/Untitled Kanban.md` (Format des Plugins community-archive/obsidian-kanban) an oder erweitert eine bestehende Karte.
+Legt eine neue Karte im Board `docs/vault/todo_kanban.md` (Format des Plugins community-archive/obsidian-kanban) an oder erweitert eine bestehende Karte.
 
 ## Wann verwenden
 
@@ -20,7 +20,7 @@ Wenn der User eine neue Karte in `todo`, `progress`, `waiting` oder `done` anleg
 
 ## Vorgehen
 
-1. Datei `docs/vault/Untitled Kanban.md` vollständig lesen.
+1. Datei `docs/vault/todo_kanban.md` vollständig lesen.
 2. Anlegen: Titel und Zielliste klären (Standard ist `todo`, wenn der User nichts sagt). Eine neue Zeile `- [ ] <Titel>` ans Ende der Zielliste anhängen (vor der nächsten `## Überschrift` bzw. vor dem `%% kanban:settings`-Block). Keine Duplikate anlegen: bei gleichem Titel zuerst nachfragen.
 3. Erweitern: Karte per exaktem Titelmatch finden (bei mehreren Treffern nachfragen). Ergänzung als eingerückte Zusatzzeile direkt unter der Kartenzeile einfügen oder den Titel präzisieren, ohne andere Karten oder Listen zu verändern.
 4. Datei speichern und dem User die Änderung bestätigen (Karte + Liste).

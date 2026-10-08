@@ -60,7 +60,7 @@ re-derive scope or guess intent.
    and keeps the resulting spec precise.
 
 5. **Write the entry as a card into the `todo` list of the Obsidian Kanban
-   board `docs/vault/Untitled Kanban.md`.** Follow the board format
+   board `docs/vault/todo_kanban.md`.** Follow the board format
    (see `kanban-edit-card`):
    - Frontmatter contains `kanban-plugin: board`.
    - Each `## heading` (`todo`, `progress`, `waiting`, `done`) is a list.

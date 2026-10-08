@@ -10,12 +10,7 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
-import type {
-  InputState,
-  JumpState,
-  MovementState,
-  PlayerState,
-} from "../../shared/types";
+import type { InputState, PlayerState } from "../../shared/types";
 
 export interface SocketData {
   playerId: string;
@@ -35,7 +30,6 @@ const IDLE_INPUT: InputState = {
   down: false,
   left: false,
   right: false,
-  jump: false,
 };
 
 interface Connection {
@@ -43,8 +37,6 @@ interface Connection {
   state: PlayerState;
   input: InputState;
   lastSeq: number;
-  jump: JumpState;
-  movement: MovementState;
   /** Set once this connection has sent a real name via Join — gates the join/leave chat announcements */
   announcedName: boolean;
 }
@@ -64,10 +56,7 @@ export class World {
       name: `Player-${id.slice(0, 4)}`,
       x: WORLD_WIDTH / 2,
       y: WORLD_HEIGHT / 2,
-      rotation: 0,
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
-      jumping: false,
-      speed: 0,
     };
 
     this.connections.set(id, {
@@ -77,8 +66,6 @@ export class World {
       // connections would let one mutation corrupt every idle player.
       input: { ...IDLE_INPUT },
       lastSeq: 0,
-      jump: { timeRemaining: 0, keyWasHeld: false },
-      movement: { speed: 0 },
       announcedName: false,
     });
 
@@ -99,9 +86,7 @@ export class World {
     this.connections.delete(id);
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
     if (connection.announcedName) {
-      this.announce(
-        `cyclist fallen off the server: "${connection.state.name}"`,
-      );
+      this.announce(`player left: "${connection.state.name}"`);
     }
   }
 
@@ -127,7 +112,7 @@ export class World {
         if (name) connection.state.name = name;
         if (!connection.announcedName) {
           connection.announcedName = true;
-          this.announce(`new cyclist here: "${connection.state.name}"`);
+          this.announce(`new player here: "${connection.state.name}"`);
         }
         break;
       }
@@ -162,13 +147,7 @@ export class World {
 
     const dtSeconds = TICK_INTERVAL_MS / 1000;
     for (const connection of this.connections.values()) {
-      stepPlayer(
-        connection.state,
-        connection.input,
-        dtSeconds,
-        connection.jump,
-        connection.movement,
-      );
+      stepPlayer(connection.state, connection.input, dtSeconds);
     }
 
     const message: ServerMessage = {

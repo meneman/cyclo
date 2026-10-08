@@ -5,7 +5,7 @@ description: Verschiebt eine Karte im Obsidian-Kanban-Board zwischen todo, progr
 
 # Kanban Move Card
 
-Verschiebt eine Karte im Board `docs/vault/Untitled Kanban.md` (Format des Plugins community-archive/obsidian-kanban) von einer Liste in eine andere.
+Verschiebt eine Karte im Board `docs/vault/todo_kanban.md` (Format des Plugins community-archive/obsidian-kanban) von einer Liste in eine andere.
 
 ## Wann verwenden
 
@@ -20,7 +20,7 @@ Wenn der User eine bestehende Karte von `todo` nach `progress` oder von `progres
 
 ## Vorgehen
 
-1. Datei `docs/vault/Untitled Kanban.md` vollständig lesen.
+1. Datei `docs/vault/todo_kanban.md` vollständig lesen.
 2. Kartentitel eindeutig identifizieren (exakter Zeilenmatch `- [ ] <Titel>`). Bei mehreren Treffern oder unklarem Titel beim User nachfragen, keine Karte raten.
 3. Nur die erlaubten Übergänge ausführen: `todo` zu `progress` oder `progress` zu `done` (Rückrichtung nur auf ausdrücklichen Wunsch). Ausnahme: `progress` zu `waiting`, wenn die Karte blockiert ist — d.h. etwas bei der Arbeit schiefgelaufen ist oder eine Entscheidung ansteht, die der KI-Agent nicht alleine treffen kann und die sich auch nicht sinnvoll anders auflösen lässt. Rückweg `waiting` zu `progress` nur auf ausdrücklichen Wunsch, sobald die Blockade geklärt ist.
 4. Die komplette Kartenzeile aus der Quellliste entfernen und ans Ende der Zielliste anhängen (vor der nächsten `## Überschrift` bzw. vor dem `%% kanban:settings`-Block). Keine anderen Zeilen, Listen oder Formatierungen verändern.
