@@ -1,4 +1,4 @@
-import type { InputState, PlayerSnapshot } from "./types";
+import type { BallState, InputState, PlayerSnapshot } from "./types";
 
 /**
  * Plain string-literal unions instead of TS enums: safe under `isolatedModules`
@@ -106,8 +106,13 @@ export type ServerMessage =
       tickRateHz: number;
       world: { width: number; height: number };
       players: PlayerSnapshot[];
+      balls: BallState[];
     }
-  | { type: typeof ServerMessageType.State; players: PlayerSnapshot[] }
+  | {
+      type: typeof ServerMessageType.State;
+      players: PlayerSnapshot[];
+      balls: BallState[];
+    }
   | { type: typeof ServerMessageType.PlayerJoined; player: PlayerSnapshot }
   | { type: typeof ServerMessageType.PlayerLeft; id: string }
   | { type: typeof ServerMessageType.Pong; t: number }

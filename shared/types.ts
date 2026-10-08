@@ -34,6 +34,39 @@ export interface PlayerState {
   swingPower?: number;
   /** Monotonic counter incremented on every swing release */
   swingSeq?: number;
+  /**
+   * Unit facing vector (world coords, y down) — the last movement direction,
+   * one of the 8 headings. Shots fly along it. Defaults to (0, 1), south.
+   */
+  facingX?: number;
+  facingY?: number;
+  /** Seconds left in the downswing; the club meets the ball when it hits 0 */
+  impactTimer?: number;
+  /**
+   * Set by stepPlayer on the step the downswing completes. The server
+   * resolves the hit and clears it before broadcasting.
+   */
+  impactDue?: boolean;
 }
 
 export type PlayerSnapshot = PlayerState;
+
+/** Authoritative golf ball state. World coords (y down), z = height above ground. */
+export interface BallState {
+  id: string;
+  /** Player the ball belongs to (color/label only — anyone may hit any ball) */
+  ownerId: string;
+  /** Owner's player color, for the ring around the ball */
+  color: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  /** True once the ball has stopped; resting balls skip simulation */
+  resting: boolean;
+  /** Increments on every hit — clients use it to trigger hit effects */
+  hitSeq: number;
+  lastHitBy?: string;
+}

@@ -1,6 +1,7 @@
 import type { Ticker } from "pixi.js";
 import { Container, Text } from "pixi.js";
 
+import { findHittableBall } from "../../../../shared/ballPhysics";
 import {
   INPUT_SEND_INTERVAL_MS,
   INTERPOLATION_DELAY_MS,
@@ -14,6 +15,7 @@ import {
 import type { ServerMessage } from "../../../../shared/protocol";
 import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
 import type { InputState, PlayerState } from "../../../../shared/types";
+import { BallPredictor } from "../../../net/BallPredictor";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { NetworkClient } from "../../../net/NetworkClient";
@@ -62,6 +64,7 @@ export class GameScreen extends Container {
   private readonly interpolator = new SnapshotInterpolator(
     INTERPOLATION_DELAY_MS,
   );
+  private readonly ballPredictor = new BallPredictor();
 
   private readonly entities = new Map<string, PlayerEntity>();
   private localId: string | null = null;
@@ -155,6 +158,8 @@ export class GameScreen extends Container {
         this.localState.x,
         this.localState.y,
         isMoving,
+        this.localState.facingX,
+        this.localState.facingY,
       );
       this.worldScene.setSwing(
         this.localState.id,
@@ -177,7 +182,14 @@ export class GameScreen extends Container {
       if (id === this.localId) continue;
       const sample = this.interpolator.sample(id);
       if (sample) {
-        this.worldScene.move(id, sample.x, sample.y);
+        this.worldScene.move(
+          id,
+          sample.x,
+          sample.y,
+          undefined,
+          sample.facingX,
+          sample.facingY,
+        );
         this.worldScene.setSwing(
           id,
           sample.charge ?? 0,
@@ -195,6 +207,15 @@ export class GameScreen extends Container {
           );
       }
     }
+
+    this.ballPredictor.update(dtSeconds);
+    this.worldScene.syncBalls(this.ballPredictor.getBalls());
+
+    const hittable = this.localState
+      ? findHittableBall(this.localState, this.ballPredictor.getSimBalls()) !==
+        null
+      : false;
+    this.worldScene.updateLocalIndicators(this.localState, hittable);
 
     if (this.localState) {
       this.worldScene.render(this.localState.x, this.localState.y, dtSeconds);
@@ -244,6 +265,7 @@ export class GameScreen extends Container {
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
     this.interpolator.clear();
+    this.ballPredictor.clear();
 
     this.worldScene?.destroy();
     this.worldScene = null;
@@ -278,11 +300,13 @@ export class GameScreen extends Container {
         // snapshots from the previous session would otherwise linger as
         // ghosts — start from a clean slate on every Welcome.
         console.info(
-          `[cyclo:game] welcome id=${message.id} players=${message.players.length} world=${message.world.width}x${message.world.height} tick=${message.tickRateHz}Hz`,
+          `[cyclo:game] welcome id=${message.id} players=${message.players.length} balls=${message.balls.length} world=${message.world.width}x${message.world.height} tick=${message.tickRateHz}Hz`,
         );
         this.clearWorldState();
         this.warnedNoLocalState = false;
         this.localId = message.id;
+        this.ballPredictor.onSnapshot(message.balls);
+        this.worldScene?.syncBalls(this.ballPredictor.getBalls());
         for (const player of message.players) {
           this.spawnEntity(player);
         }
@@ -321,11 +345,12 @@ export class GameScreen extends Container {
         const now = performance.now();
         if (now - this.lastStateAt > 5000) {
           console.debug(
-            `[cyclo:game] state flowing: ${message.players.length} players`,
+            `[cyclo:game] state flowing: ${message.players.length} players, ${message.balls.length} balls`,
           );
         }
         this.lastStateAt = now;
         this.interpolator.push(message.players);
+        this.ballPredictor.onSnapshot(message.balls);
         this.reconcileLocalPlayer(message.players);
         // Names aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
@@ -362,6 +387,7 @@ export class GameScreen extends Container {
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
     this.interpolator.clear();
+    this.ballPredictor.clear();
     this.worldScene?.clear();
     this.localState = null;
   }

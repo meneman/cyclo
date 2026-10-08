@@ -1,5 +1,11 @@
 import type { Server, ServerWebSocket } from "bun";
-
+import {
+  createBall,
+  findHittableBall,
+  hitPoint,
+  stepBall,
+  strikeBall,
+} from "../../shared/ballPhysics";
 import {
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
@@ -10,7 +16,7 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
-import type { InputState, PlayerState } from "../../shared/types";
+import type { BallState, InputState, PlayerState } from "../../shared/types";
 
 export interface SocketData {
   playerId: string;
@@ -48,6 +54,7 @@ interface Connection {
  */
 export class World {
   private readonly connections = new Map<string, Connection>();
+  private readonly balls = new Map<string, BallState>();
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
@@ -59,7 +66,19 @@ export class World {
       x: WORLD_WIDTH / 2,
       y: WORLD_HEIGHT / 2,
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
+      facingX: 0,
+      facingY: 1,
     };
+
+    const ballPos = hitPoint(state);
+    const ball = createBall(
+      `ball-${id}`,
+      id,
+      state.color,
+      ballPos.x,
+      ballPos.y,
+    );
+    this.balls.set(ball.id, ball);
 
     this.connections.set(id, {
       ws,
@@ -71,7 +90,7 @@ export class World {
       announcedName: false,
     });
     console.log(
-      `[cyclo:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size}`,
+      `[cyclo:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size} balls=${this.balls.size}`,
     );
 
     this.sendTo(ws, {
@@ -80,6 +99,7 @@ export class World {
       tickRateHz: TICK_RATE_HZ,
       world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       players: this.snapshot(),
+      balls: this.ballSnapshot(),
     });
 
     this.broadcast({ type: ServerMessageType.PlayerJoined, player: state }, id);
@@ -92,8 +112,9 @@ export class World {
       return;
     }
     this.connections.delete(id);
+    this.balls.delete(`ball-${id}`);
     console.log(
-      `[cyclo:server] -player ${id} "${connection.state.name}" players=${this.connections.size}`,
+      `[cyclo:server] -player ${id} "${connection.state.name}" players=${this.connections.size} balls=${this.balls.size}`,
     );
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
     if (connection.announcedName) {
@@ -167,11 +188,32 @@ export class World {
     const dtSeconds = TICK_INTERVAL_MS / 1000;
     for (const connection of this.connections.values()) {
       stepPlayer(connection.state, connection.input, dtSeconds);
+      if (connection.state.impactDue) {
+        connection.state.impactDue = false;
+        const hittable = findHittableBall(
+          connection.state,
+          this.balls.values(),
+        );
+        if (hittable) {
+          strikeBall(
+            hittable,
+            connection.state,
+            connection.state.swingPower ?? 1,
+          );
+        }
+      }
     }
+
+    for (const ball of this.balls.values()) {
+      if (!ball.resting) {
+        stepBall(ball, dtSeconds);
+      }
+    }
+
     if (this.ticks === 1 || this.ticks % (TICK_RATE_HZ * 10) === 0) {
       const first = this.connections.values().next().value;
       console.debug(
-        `[cyclo:server] tick ${this.ticks}: ${this.connections.size} players` +
+        `[cyclo:server] tick ${this.ticks}: ${this.connections.size} players, ${this.balls.size} balls` +
           (first
             ? ` e.g. "${first.state.name}" at (${first.state.x.toFixed(0)}, ${first.state.y.toFixed(0)})`
             : ""),
@@ -181,12 +223,17 @@ export class World {
     const message: ServerMessage = {
       type: ServerMessageType.State,
       players: this.snapshot(),
+      balls: this.ballSnapshot(),
     };
     server.publish(WORLD_TOPIC, JSON.stringify(message));
   }
 
   private snapshot(): PlayerState[] {
     return Array.from(this.connections.values(), (c) => ({ ...c.state }));
+  }
+
+  private ballSnapshot(): BallState[] {
+    return Array.from(this.balls.values(), (b) => ({ ...b }));
   }
 
   private sendTo(

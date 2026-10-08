@@ -95,6 +95,45 @@ describe("stepPlayer", () => {
     );
     assert.equal(top.y, PLAYER_RADIUS);
   });
+
+  test("facing updates on movement and persists while idle", () => {
+    const player = makePlayer();
+    // Move up-left
+    stepPlayer(
+      player,
+      { up: true, down: false, left: true, right: false, charging: false },
+      0.1,
+    );
+    const diag = -Math.SQRT1_2;
+    assert.ok(Math.abs((player.facingX ?? 0) - diag) < 1e-6);
+    assert.ok(Math.abs((player.facingY ?? 0) - diag) < 1e-6);
+
+    // Idle step should keep facing intact
+    stepPlayer(player, IDLE, 0.1);
+    assert.ok(Math.abs((player.facingX ?? 0) - diag) < 1e-6);
+    assert.ok(Math.abs((player.facingY ?? 0) - diag) < 1e-6);
+  });
+
+  test("swing release starts downswing, blocks movement, and raises impactDue", () => {
+    const player = makePlayer();
+    player.charge = 1.0;
+    // Release
+    stepPlayer(player, IDLE, 0.01);
+    assert.equal(player.swingPower, 1.0);
+    assert.ok((player.impactTimer ?? 0) > 0);
+    assert.equal(player.impactDue, undefined);
+
+    const initialX = player.x;
+    // Attempting to move during downswing should be blocked
+    stepPlayer(player, RIGHT, 0.05);
+    assert.equal(player.x, initialX);
+    assert.ok((player.impactTimer ?? 0) > 0);
+
+    // Advance past impact delay
+    stepPlayer(player, RIGHT, 0.1);
+    assert.equal(player.impactTimer, 0);
+    assert.equal(player.impactDue, true);
+  });
 });
 
 describe("directionFromInput", () => {

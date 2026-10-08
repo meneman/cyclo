@@ -1,4 +1,5 @@
 import {
+  IMPACT_DELAY_SECONDS,
   MAX_CHARGE_DURATION_SECONDS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
@@ -32,7 +33,10 @@ export function directionFromInput(input: InputState): Vector2 | null {
  * movement, clamped to the world bounds.
  *
  * Holding Space (`charging: true`) loads the golf swing, locking movement.
- * Releasing Space triggers a swing with the accumulated power (0..1).
+ * Releasing Space triggers a swing with the accumulated power (0..1) and
+ * starts the downswing: movement stays locked for IMPACT_DELAY_SECONDS, and
+ * on the step the club reaches the ball `impactDue` is raised for the server
+ * to resolve the hit. Moving updates `facingX/Y`, which persists while idle.
  *
  * Pure function of its inputs so the server (authoritative) and the client
  * (local prediction) produce identical results given identical state.
@@ -43,24 +47,32 @@ export function stepPlayer(
   input: InputState,
   dtSeconds: number,
 ): PlayerState {
-  if (input.charging) {
+  const inDownswing = (player.impactTimer ?? 0) > 0;
+  if (inDownswing) {
+    player.impactTimer = (player.impactTimer ?? 0) - dtSeconds;
+    if (player.impactTimer <= 0) {
+      player.impactTimer = 0;
+      player.impactDue = true;
+    }
+  } else if (input.charging) {
     const currentCharge = player.charge ?? 0;
     player.charge = Math.min(
       1,
       currentCharge + dtSeconds / MAX_CHARGE_DURATION_SECONDS,
     );
+  } else if ((player.charge ?? 0) > 0) {
+    // Releasing space executes the swing
+    player.swingPower = player.charge;
+    player.swingSeq = (player.swingSeq ?? 0) + 1;
+    player.charge = 0;
+    player.impactTimer = IMPACT_DELAY_SECONDS;
   } else {
-    if ((player.charge ?? 0) > 0) {
-      // Releasing space executes the swing
-      player.swingPower = player.charge;
-      player.swingSeq = (player.swingSeq ?? 0) + 1;
-      player.charge = 0;
-    }
-
     const direction = directionFromInput(input);
     if (direction) {
       player.x += direction.x * PLAYER_SPEED * dtSeconds;
       player.y += direction.y * PLAYER_SPEED * dtSeconds;
+      player.facingX = direction.x;
+      player.facingY = direction.y;
     }
   }
 

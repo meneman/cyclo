@@ -2,11 +2,15 @@ import * as THREE from "three";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
 import {
+  HIT_RADIUS,
   PLAYER_RADIUS,
   SWING_ANIMATION_DURATION_SECONDS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
+import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
+import type { PlayerState } from "../../../../shared/types";
+import type { RenderBall } from "../../../net/BallPredictor";
 
 import type { CharacterTemplate } from "./CharacterRoster";
 import {
@@ -14,6 +18,11 @@ import {
   loadCharacterTemplates,
   pickClip,
 } from "./CharacterRoster";
+import {
+  createGolfBall,
+  disposeGolfBallResources,
+  updateGolfBallVisual,
+} from "./GolfBall";
 import { attachGolfClub, calculateGolfSwingPose } from "./GolfClub";
 
 /** World-to-screen scale — how many screen px one world unit covers */
@@ -21,6 +30,11 @@ const CAMERA_ZOOM = 3;
 /** World units covered by one repeating tile of the ground texture */
 const FIELD_TILE_SIZE = 80;
 const FIELD_TEXTURE_URL = `${import.meta.env.BASE_URL}textures/grass.png`;
+/**
+ * Multiplied onto the grass texture — slightly below white with green kept
+ * highest, so the field reads a little darker and richer green.
+ */
+const FIELD_TINT = 0xb8ccb0;
 /** Out-of-bounds backdrop around the field */
 const BACKDROP_COLOR = 0x0b1020;
 /** Fallback marker color when a character template fails to load */
@@ -116,6 +130,11 @@ export class WorldScene {
   );
   private readonly fieldTexture: THREE.Texture;
   private readonly fieldMaterial: THREE.MeshStandardMaterial;
+  private readonly balls = new Map<string, THREE.Group>();
+  private readonly rangeIndicator: THREE.Mesh;
+  private readonly rangeMaterial: THREE.MeshBasicMaterial;
+  private readonly rangeGeometry: THREE.RingGeometry;
+  private readonly landingMarker: THREE.Group;
 
   private viewWidth = 1;
   private viewHeight = 1;
@@ -155,6 +174,7 @@ export class WorldScene {
     );
     this.fieldMaterial = new THREE.MeshStandardMaterial({
       map: this.fieldTexture,
+      color: FIELD_TINT,
       roughness: 0.9,
       metalness: 0.0,
     });
@@ -162,6 +182,43 @@ export class WorldScene {
     const field = new THREE.Mesh(this.fieldGeometry, this.fieldMaterial);
     field.position.set(WORLD_WIDTH / 2, -WORLD_HEIGHT / 2, -1);
     this.scene.add(field);
+
+    this.rangeGeometry = new THREE.RingGeometry(
+      HIT_RADIUS - 0.25,
+      HIT_RADIUS + 0.25,
+      32,
+    );
+    this.rangeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.25,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.rangeIndicator = new THREE.Mesh(
+      this.rangeGeometry,
+      this.rangeMaterial,
+    );
+    this.rangeIndicator.name = "RangeIndicator";
+    this.rangeIndicator.position.z = 0.03;
+    this.rangeIndicator.visible = false;
+    this.scene.add(this.rangeIndicator);
+
+    this.landingMarker = new THREE.Group();
+    this.landingMarker.name = "LandingMarker";
+    const crossMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const barH = new THREE.Mesh(new THREE.PlaneGeometry(6, 0.8), crossMat);
+    const barV = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 6), crossMat);
+    this.landingMarker.add(barH, barV);
+    this.landingMarker.position.z = 0.03;
+    this.landingMarker.visible = false;
+    this.scene.add(this.landingMarker);
 
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
     this.updateCamera(this.focusX, this.focusY);
@@ -233,7 +290,14 @@ export class WorldScene {
     this.instantiate(id, x, y, charIndex);
   }
 
-  public move(id: string, x: number, y: number, isWalking?: boolean): void {
+  public move(
+    id: string,
+    x: number,
+    y: number,
+    isWalking?: boolean,
+    facingX?: number,
+    facingY?: number,
+  ): void {
     const view = this.players.get(id);
     if (!view) {
       const pending = this.pendingSpawns.get(id);
@@ -253,6 +317,15 @@ export class WorldScene {
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, 0);
 
+    // Rotation: prefer authoritative facing vector, fall back to delta movement
+    if (facingX !== undefined && facingY !== undefined) {
+      if (Math.hypot(facingX, facingY) > 0.01) {
+        view.yaw.rotation.z = yawForDirection(facingX, facingY);
+      }
+    } else if (Math.hypot(dx, dy) > 0.01) {
+      view.yaw.rotation.z = yawForDirection(dx, dy);
+    }
+
     const walking =
       (isWalking !== undefined
         ? isWalking
@@ -261,15 +334,64 @@ export class WorldScene {
       !view.swingActive;
 
     if (walking) {
-      if (Math.hypot(dx, dy) > 0.01) {
-        view.yaw.rotation.z = yawForDirection(dx, dy);
-      }
       this.setWalking(view, true);
     } else {
       this.setWalking(view, false);
     }
     view.lastX = x;
     view.lastY = y;
+  }
+
+  public syncBalls(renderBalls: RenderBall[]): void {
+    const alive = new Set<string>();
+    for (const b of renderBalls) {
+      alive.add(b.id);
+      let group = this.balls.get(b.id);
+      if (!group) {
+        group = createGolfBall(b.color);
+        this.scene.add(group);
+        this.balls.set(b.id, group);
+      }
+      group.position.set(b.x, -b.y, 0);
+      updateGolfBallVisual(group, b.z);
+    }
+
+    for (const [id, group] of this.balls) {
+      if (!alive.has(id)) {
+        this.scene.remove(group);
+        this.balls.delete(id);
+      }
+    }
+  }
+
+  public updateLocalIndicators(
+    player: PlayerState | null,
+    hittableBallAvailable: boolean,
+  ): void {
+    if (!player) {
+      this.rangeIndicator.visible = false;
+      this.landingMarker.visible = false;
+      return;
+    }
+
+    const hp = hitPoint(player);
+    this.rangeIndicator.position.set(hp.x, -hp.y, 0.03);
+    this.rangeIndicator.visible = true;
+    if (hittableBallAvailable) {
+      this.rangeMaterial.color.setHex(0x22c55e);
+      this.rangeMaterial.opacity = 0.85;
+    } else {
+      this.rangeMaterial.color.setHex(0xffffff);
+      this.rangeMaterial.opacity = 0.25;
+    }
+
+    if ((player.charge ?? 0) > 0) {
+      const landing = predictedLanding(player, player.charge ?? 0);
+      this.landingMarker.position.set(landing.x, -landing.y, 0.03);
+      this.landingMarker.visible = true;
+    } else {
+      this.landingMarker.visible = false;
+    }
   }
 
   /**
@@ -343,6 +465,12 @@ export class WorldScene {
   public clear(): void {
     for (const id of [...this.players.keys()]) this.remove(id);
     this.pendingSpawns.clear();
+    for (const group of this.balls.values()) {
+      this.scene.remove(group);
+    }
+    this.balls.clear();
+    this.rangeIndicator.visible = false;
+    this.landingMarker.visible = false;
   }
 
   /**
@@ -395,6 +523,15 @@ export class WorldScene {
     this.fieldGeometry.dispose();
     this.fieldMaterial.dispose();
     this.fieldTexture.dispose();
+    this.rangeGeometry.dispose();
+    this.rangeMaterial.dispose();
+    for (const child of this.landingMarker.children) {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (child.material instanceof THREE.Material) child.material.dispose();
+      }
+    }
+    disposeGolfBallResources();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     const pixiCanvas = document.querySelector("#pixi-container canvas");

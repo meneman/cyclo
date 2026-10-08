@@ -47,6 +47,11 @@ kanban-plugin: board
       - Multiplayer: Server und Client interpolieren Charge und Swing-Events synchron für alle Mitspieler.
     - Erledigt 2026-10-08: Runder 3D-Golfschwung mit Rumpfdrehung vollständig implementiert. 35/35 Tests grün (`bun test`), `npm run lint` und `npm run build` fehlerfrei.
 
+- [ ] Swing → ball hit → 3D ball flight & multiplayer sync
+    - Scope: Shared physics in shared/ballPhysics.ts (distance-first carry launch calculation, sub-stepped trajectory, bouncing, rolling friction, wall reflection). Server-authoritative hit detection with downswing impact delay matching club animation (~110ms), hittable ball detection in front-right hit zone. Client dead reckoning via BallPredictor with smooth error decay.
+    - Visuals: 3D height arc with perspective scale (1.0x -> 1.4x), sliding sun shadow with shrink/fade, owner color rings, address range ring (faint white -> bright green when ball in reach), predicted landing marker cross during charging.
+    - Erledigt 2026-10-08: Vollständig implementiert. 52/52 Tests grün (`bun test`), Server tsc sauber, `npm run lint` und `npm run build` fehlerfrei. Manuelle Browser-Verifikation siehe docs/local/MANUAL_TESTS.md.
+
 
 %% kanban:settings
 ```
