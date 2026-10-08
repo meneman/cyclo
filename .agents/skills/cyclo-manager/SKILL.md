@@ -20,25 +20,16 @@ npm install          # client deps (vite, pixi.js, eslint, ...)
 cd server && bun install && cd ..   # server deps (@types/bun)
 ```
 
-### 1. Start the server
+### 1. Start both server and client (recommended)
 
 ```bash
-npm run dev:server   # cd server && bun --watch src/index.ts
+npm run dev          # starts server (port 3332) and client (http://localhost:3331) concurrently
 ```
 
-Serves the authoritative simulation with a WebSocket upgrade on `/ws`
-(`server/src/index.ts`). Port via `PORT` env, default `3332`. The client
-connects via a relative URL (`src/net/config.ts` → `<host>/ws`), which the
-Vite dev server proxies to `ws://localhost:3332` (`vite.config.ts`) — so a
-non-default `PORT` also needs the proxy target updated.
-
-Production equivalent: `cd server && bun src/index.ts`
-(`server/package.json` → `start`).
-
-### 2. Start the client
-
+Or start them individually in separate terminals:
 ```bash
-npm run dev          # vite dev server on http://localhost:3331
+npm run dev:server   # cd server && bun --watch src/index.ts (port 3332)
+npm run dev:client   # vite dev server on http://localhost:3331
 ```
 
 Open the URL in two browser windows to play against yourself. The app goes

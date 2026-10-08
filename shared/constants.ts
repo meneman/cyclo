@@ -1,6 +1,10 @@
-/** World size, in world units — a plain open area with no obstacles. */
-export const WORLD_WIDTH = 1200;
-export const WORLD_HEIGHT = 900;
+/**
+ * World size, in world units — a big plain open area with no obstacles.
+ * At ~3000 units across it spans about 100 character footprints, so players
+ * roam freely while each client's viewport shows only a window of it.
+ */
+export const WORLD_WIDTH = 3000;
+export const WORLD_HEIGHT = 3000;
 
 /** Server simulation rate */
 export const TICK_RATE_HZ = 20;
@@ -19,3 +23,9 @@ export const PLAYER_RADIUS = 14; // visual size (marker, world-bound clamp)
 
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
 export const WORLD_TOPIC = "world";
+
+/** Time in seconds of holding Space required to reach 100% swing power */
+export const MAX_CHARGE_DURATION_SECONDS = 1.5;
+
+/** Duration of the active golf swing animation in seconds */
+export const SWING_ANIMATION_DURATION_SECONDS = 0.32;

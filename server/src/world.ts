@@ -30,6 +30,7 @@ const IDLE_INPUT: InputState = {
   down: false,
   left: false,
   right: false,
+  charging: false,
 };
 
 interface Connection {
@@ -49,6 +50,7 @@ export class World {
   private readonly connections = new Map<string, Connection>();
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
+  private ticks = 0;
 
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
     const state: PlayerState = {
@@ -68,6 +70,9 @@ export class World {
       lastSeq: 0,
       announcedName: false,
     });
+    console.log(
+      `[cyclo:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size}`,
+    );
 
     this.sendTo(ws, {
       type: ServerMessageType.Welcome,
@@ -82,8 +87,14 @@ export class World {
 
   public removePlayer(id: string): void {
     const connection = this.connections.get(id);
-    if (!connection) return;
+    if (!connection) {
+      console.log(`[cyclo:server] -player ${id} (unknown)`);
+      return;
+    }
     this.connections.delete(id);
+    console.log(
+      `[cyclo:server] -player ${id} "${connection.state.name}" players=${this.connections.size}`,
+    );
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
     if (connection.announcedName) {
       this.announce(`player left: "${connection.state.name}"`);
@@ -99,6 +110,10 @@ export class World {
         if (message.seq > connection.lastSeq) {
           connection.lastSeq = message.seq;
           connection.input = message.input;
+        } else {
+          console.debug(
+            `[cyclo:server] stale input from ${id} seq=${message.seq} last=${connection.lastSeq}`,
+          );
         }
         break;
       case ClientMessageType.Ping:
@@ -109,6 +124,9 @@ export class World {
         break;
       case ClientMessageType.Join: {
         const name = message.name.trim().slice(0, 24);
+        console.log(
+          `[cyclo:server] join ${id} as "${name || connection.state.name}"`,
+        );
         if (name) connection.state.name = name;
         if (!connection.announcedName) {
           connection.announcedName = true;
@@ -144,10 +162,20 @@ export class World {
 
   private tick(server: Server<SocketData>): void {
     if (this.connections.size === 0) return;
+    this.ticks++;
 
     const dtSeconds = TICK_INTERVAL_MS / 1000;
     for (const connection of this.connections.values()) {
       stepPlayer(connection.state, connection.input, dtSeconds);
+    }
+    if (this.ticks === 1 || this.ticks % (TICK_RATE_HZ * 10) === 0) {
+      const first = this.connections.values().next().value;
+      console.debug(
+        `[cyclo:server] tick ${this.ticks}: ${this.connections.size} players` +
+          (first
+            ? ` e.g. "${first.state.name}" at (${first.state.x.toFixed(0)}, ${first.state.y.toFixed(0)})`
+            : ""),
+      );
     }
 
     const message: ServerMessage = {

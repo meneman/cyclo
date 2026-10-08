@@ -29,14 +29,22 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
+      console.log(`[cyclo:ws] open ${ws.data.playerId}`);
       ws.subscribe(WORLD_TOPIC);
       world.addPlayer(ws.data.playerId, ws);
     },
     message(ws, raw) {
       const message = parseClientMessage(raw);
-      if (message) world.handleMessage(ws.data.playerId, message);
+      if (!message) {
+        console.warn(
+          `[cyclo:ws] dropped malformed message from ${ws.data.playerId}`,
+        );
+        return;
+      }
+      world.handleMessage(ws.data.playerId, message);
     },
     close(ws) {
+      console.log(`[cyclo:ws] close ${ws.data.playerId}`);
       world.removePlayer(ws.data.playerId);
     },
   },

@@ -8,7 +8,8 @@
     "build": "npm run lint && tsc && vite build",
     "lint": "eslint .",
     "test": "bun test",
-    "dev": "vite",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"server,client\" -c \"yellow,cyan\" \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
     "dev:server": "cd server && bun --watch src/index.ts"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "@assetpack/core": "^1.4.0",
     "@eslint/js": "^9.21.0",
     "@types/three": "^0.186.0",
+    "concurrently": "^10.0.5",
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.1.2",
     "eslint-plugin-prettier": "^5.2.6",

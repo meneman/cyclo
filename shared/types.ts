@@ -17,6 +17,8 @@ export interface InputState {
   left: boolean;
   /** Right / D — move toward increasing x */
   right: boolean;
+  /** Space — holding charges the swing power */
+  charging: boolean;
 }
 
 /** Authoritative per-player simulation state, shared verbatim between server and client */
@@ -26,6 +28,12 @@ export interface PlayerState {
   x: number;
   y: number;
   color: number;
+  /** Current swing charge from 0 (not charging) to 1 (full charge) */
+  charge?: number;
+  /** Power of the most recently executed swing (0 to 1) */
+  swingPower?: number;
+  /** Monotonic counter incremented on every swing release */
+  swingSeq?: number;
 }
 
 export type PlayerSnapshot = PlayerState;

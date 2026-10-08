@@ -30,6 +30,24 @@ kanban-plugin: board
     - Edge cases: player radius (PLAYER_RADIUS 14) vs block overlap, corner sliding, spawn-inside-block fallback
     - Erledigt 2026-09-17: Arena 1200x900 (WORLD_WIDTH/HEIGHT in shared/constants.ts) mit 7 random Blöcken. Neu shared/arena.ts (generateArenaLayout mit injizierbarer RNG, findSpawnPoint mit Grid-Fallback, circleHitsBlock/isPointClear), shared/types.ts + Block, shared/simulation.ts resolvePosition axis-separiert (X dann Y: Edge-Slide statt Hard-Stop, exakter Radius-Kontakt stabil), stepPlayer nimmt blocks-Param (Default []), shared/protocol.ts Welcome.blocks, server/src/world.ts generiert Layout einmal im Konstruktor (pro Serverstart, Math.random), Welcome broadcastet es, Spawn via findSpawnPoint, Tick mit blocks. GameScreen.ts: arenaLayer (weißes Rect + Slate-Blöcke) in Camera hinter Entities, Welcome setzt Layout + zeichnet neu, Prediction mit arenaBlocks, HUD/Debug-Text dunkel für Lesbarkeit (Engine-Menü-Hintergrund bleibt schwarz, weiße Arena deckt Gameplay-View ab). Springen blockt wie alles (visual only). Tests: neu shared/arena.test.ts (6: Determinismus, Count/Bounds/Gaps, Spawn-clear über Seeds, Fallbacks, Kontakt-Regel), simulation.test.ts +3 (head-on Block, Edge-Slide, Corner-Rounding, je mit Overlap-Assert pro Tick); bun test 29/29 grün, npm run lint/build (tsc+vite) sauber. Manuelle Browser-Verifikation ausstehend, siehe docs/local/MANUAL_TESTS.md.
 
+- [ ] Golf club in character hand
+    - Scope: Jeder Spieler erhält einen stilisierten prozeduralen Low-Poly-Golfschläger in der rechten Hand, der über Knochen-Attachment automatisch mit Idle- und Walk-Animationen mitschwingt.
+    - Implementation: Neues Modul `src/app/screens/game/GolfClub.ts` mit `createGolfClub()` und `attachGolfClub()`. Schläger besteht aus dunklem Gummigriff, Grip-Cap, weißem Ferrule-Ring, glänzendem Chromstahl-Schaft, Hosel und abgewinkeltem Eisen-Schlägerkopf. Befestigung am Knochen `PalmR` in `WorldScene.ts`.
+    - Geometrien & Materialien werden instanzübergreifend geteilt für maximale Performance.
+    - Erledigt 2026-10-08: Modul `GolfClub.ts` erstellt, `WorldScene.ts` instanziiert den Schläger pro Charakter an `PalmR`. Unit-Tests in `GolfClub.test.ts` (5 Tests, alle grün). `bun test` 31/31 grün, `npm run lint` und `npm run build` fehlerfrei. Manuelle Browser-Verifikation siehe docs/local/MANUAL_TESTS.md.
+
+- [ ] Golf swing: hold Space to charge, release to swing with load bubble
+    - Scope: Halten der Leertaste lädt den Schlag auf (0 bis 100% über 1.5s), Loslassen führt den Schwung aus. Je länger gehalten, desto härter der Schwung. Anzeige über dynamische Lade-Bubble über dem Spieler.
+    - Implementation:
+      - `shared/types.ts` & `constants.ts`: `InputState.charging`, `PlayerState.charge`, `swingPower`, `swingSeq`, `MAX_CHARGE_DURATION_SECONDS`, `SWING_ANIMATION_DURATION_SECONDS`.
+      - `shared/simulation.ts`: `stepPlayer` akkumuliert Charge während Space gehalten wird und sperrt Laufen (fester Stand); Loslassen inkrementiert `swingSeq`, setzt `swingPower` und triggert den Schlag.
+      - `src/net/InputController.ts`: `Space`-Taste auf `charging` gemapped.
+      - `PlayerEntity.ts`: Lade-Bubble mit dynamischem Farbverlauf (grün -> gelb -> rot) und Prozentanzeige/MAX über dem Namensschild; Release-Flash mit finaler Stärke.
+      - `WorldScene.ts` & `GolfClub.ts`: Runder 3D-Schwungbogen auf geneigter Schwungebene (`calculateGolfSwingPose` mit Euler X/Y/Z und `bodyTwistY`). Beim Ausholen fächert der Schläger weit nach rechts aus und die Figur winkelt den Rumpf an (-16° Coiling); beim Schwung peitscht der Schläger im Bogen durch den Treffpunkt, wickelt sich über die linke Schulter im High-Finish (+20° Drehung) und gleitet weich zurück.
+      - Multiplayer: Server und Client interpolieren Charge und Swing-Events synchron für alle Mitspieler.
+    - Erledigt 2026-10-08: Runder 3D-Golfschwung mit Rumpfdrehung vollständig implementiert. 35/35 Tests grün (`bun test`), `npm run lint` und `npm run build` fehlerfrei.
+
+
 %% kanban:settings
 ```
 {"kanban-plugin":"board","list-collapse":[false,false,false,false]}

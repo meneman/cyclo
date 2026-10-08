@@ -10,16 +10,22 @@ const KEY_MAP: Record<string, keyof InputState> = {
   ArrowLeft: "left",
   KeyD: "right",
   ArrowRight: "right",
+  Space: "charging",
 };
 
 /** Tracks which movement keys are currently held down */
 export class InputController {
+  private loggedFirstKey = false;
   private readonly state: InputState = {
     up: false,
     down: false,
     left: false,
     right: false,
+    charging: false,
   };
+
+  /** Callback triggered immediately when movement input state transitions (e.g. key pressed or released) */
+  public onChange?: (input: InputState) => void;
 
   /** While disabled, held keys read as released and new key events are ignored — used while chat is focused */
   private enabled = true;
@@ -36,10 +42,20 @@ export class InputController {
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (enabled) return;
+    const hadInput =
+      this.state.up ||
+      this.state.down ||
+      this.state.left ||
+      this.state.right ||
+      this.state.charging;
     this.state.up = false;
     this.state.down = false;
     this.state.left = false;
     this.state.right = false;
+    this.state.charging = false;
+    if (hadInput) {
+      this.onChange?.(this.get());
+    }
   }
 
   public destroy(): void {
@@ -51,7 +67,14 @@ export class InputController {
     if (!this.enabled) return;
     const key = KEY_MAP[event.code];
     if (!key) return;
-    this.state[key] = true;
+    if (!this.loggedFirstKey) {
+      this.loggedFirstKey = true;
+      console.info(`[cyclo:input] first movement key: ${event.code} -> ${key}`);
+    }
+    if (!this.state[key]) {
+      this.state[key] = true;
+      this.onChange?.(this.get());
+    }
     event.preventDefault();
   };
 
@@ -59,7 +82,10 @@ export class InputController {
     if (!this.enabled) return;
     const key = KEY_MAP[event.code];
     if (!key) return;
-    this.state[key] = false;
+    if (this.state[key]) {
+      this.state[key] = false;
+      this.onChange?.(this.get());
+    }
     event.preventDefault();
   };
 }

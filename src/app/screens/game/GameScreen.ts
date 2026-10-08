@@ -12,8 +12,8 @@ import {
   ServerMessageType,
 } from "../../../../shared/protocol";
 import type { ServerMessage } from "../../../../shared/protocol";
-import { stepPlayer } from "../../../../shared/simulation";
-import type { PlayerState } from "../../../../shared/types";
+import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
+import type { InputState, PlayerState } from "../../../../shared/types";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
 import { NetworkClient } from "../../../net/NetworkClient";
@@ -26,6 +26,8 @@ import { WorldScene } from "./WorldScene";
 
 /** Fraction of the local/server position gap corrected per state update */
 const RECONCILE_LERP = 0.15;
+/** Maximum gap between predicted and authoritative position tolerated without nudging (avoids jitter/glide from network latency and tick discretization) */
+const RECONCILE_DEADBAND = 25;
 /** Beyond this gap we snap instead of smoothly correcting (teleport / desync) */
 const RECONCILE_SNAP_DISTANCE = 200;
 /** Toggles the coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
@@ -71,6 +73,9 @@ export class GameScreen extends Container {
   private connected = false;
   private playerCount = 0;
   private sendAccumulatorMs = 0;
+  private updateFrames = 0;
+  private lastStateAt = 0;
+  private warnedNoLocalState = false;
 
   constructor() {
     super();
@@ -99,13 +104,18 @@ export class GameScreen extends Container {
 
   /** Called by Navigation right after the screen is added to the stage */
   public prepare(): void {
+    console.info(`[cyclo:game] prepare, ws=${resolveWsUrl()}`);
     this.worldScene = new WorldScene();
     this.worldScene.setSize(window.innerWidth, window.innerHeight);
+    this.input.onChange = (newInput) => {
+      this.sendInput(newInput);
+    };
     this.unsubscribeMessage = this.network.onMessage((message) =>
       this.handleServerMessage(message),
     );
     this.unsubscribeConnection = this.network.onConnectionChange(
       (connected) => {
+        console.info(`[cyclo:game] connection ${connected ? "up" : "down"}`);
         this.connected = connected;
         if (connected) {
           this.network.send({
@@ -121,9 +131,20 @@ export class GameScreen extends Container {
 
   public update(ticker: Ticker): void {
     if (!this.worldScene) return;
+    this.updateFrames++;
+    if (this.updateFrames === 1) {
+      console.info("[cyclo:game] first update tick");
+    }
+    if (!this.localState && !this.warnedNoLocalState) {
+      this.warnedNoLocalState = true;
+      console.warn(
+        "[cyclo:game] no local player yet (waiting for Welcome) — camera parked at world center",
+      );
+    }
     this.input.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
+    const isMoving = directionFromInput(currentInput) !== null;
 
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
@@ -133,8 +154,23 @@ export class GameScreen extends Container {
         this.localState.id,
         this.localState.x,
         this.localState.y,
+        isMoving,
+      );
+      this.worldScene.setSwing(
+        this.localState.id,
+        this.localState.charge ?? 0,
+        this.localState.swingPower ?? 0,
+        this.localState.swingSeq ?? 0,
+        dtSeconds,
       );
       this.placeLabel(this.localState.id, this.localState.x, this.localState.y);
+      this.entities
+        .get(this.localState.id)
+        ?.setSwingCharge(
+          this.localState.charge ?? 0,
+          this.localState.swingPower ?? 0,
+          this.localState.swingSeq ?? 0,
+        );
     }
 
     for (const [id] of this.entities) {
@@ -142,30 +178,41 @@ export class GameScreen extends Container {
       const sample = this.interpolator.sample(id);
       if (sample) {
         this.worldScene.move(id, sample.x, sample.y);
+        this.worldScene.setSwing(
+          id,
+          sample.charge ?? 0,
+          sample.swingPower ?? 0,
+          sample.swingSeq ?? 0,
+          dtSeconds,
+        );
         this.placeLabel(id, sample.x, sample.y);
+        this.entities
+          .get(id)
+          ?.setSwingCharge(
+            sample.charge ?? 0,
+            sample.swingPower ?? 0,
+            sample.swingSeq ?? 0,
+          );
       }
     }
 
     if (this.localState) {
-      this.worldScene.render(this.localState.x, this.localState.y);
+      this.worldScene.render(this.localState.x, this.localState.y, dtSeconds);
     } else {
-      this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+      this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, dtSeconds);
     }
 
     this.sendAccumulatorMs += ticker.deltaMS;
     if (this.sendAccumulatorMs >= INPUT_SEND_INTERVAL_MS) {
-      // Subtract (rather than zero) so the send rate doesn't sag under frame
-      // jitter; clamp after a long hitch (e.g. suspended tab) to a single
-      // catch-up send instead of a burst.
-      this.sendAccumulatorMs =
-        this.sendAccumulatorMs >= INPUT_SEND_INTERVAL_MS * 2
-          ? 0
-          : this.sendAccumulatorMs - INPUT_SEND_INTERVAL_MS;
-      this.network.send({
-        type: ClientMessageType.Input,
-        seq: this.network.nextSeq(),
-        input: currentInput,
-      });
+      this.sendInput(currentInput);
+    }
+
+    if (this.updateFrames % 300 === 0) {
+      const x = this.localState?.x.toFixed(0) ?? "-";
+      const y = this.localState?.y.toFixed(0) ?? "-";
+      console.debug(
+        `[cyclo:game] heartbeat frame=${this.updateFrames} connected=${this.connected} players=${this.playerCount} entities=${this.entities.size} local=(${x},${y})`,
+      );
     }
 
     this.hud.text = `${this.connected ? "connected" : "reconnecting…"} · ${this.playerCount} player${this.playerCount === 1 ? "" : "s"}`;
@@ -187,6 +234,7 @@ export class GameScreen extends Container {
 
   /** Fully reset — the screen instance may be pooled and reused */
   public reset(): void {
+    console.info("[cyclo:game] reset");
     this.unsubscribeMessage?.();
     this.unsubscribeConnection?.();
     this.network.disconnect();
@@ -225,33 +273,58 @@ export class GameScreen extends Container {
 
   private handleServerMessage(message: ServerMessage): void {
     switch (message.type) {
-      case ServerMessageType.Welcome:
+      case ServerMessageType.Welcome: {
         // A reconnect issues a new player id, so stale entities and buffered
         // snapshots from the previous session would otherwise linger as
         // ghosts — start from a clean slate on every Welcome.
+        console.info(
+          `[cyclo:game] welcome id=${message.id} players=${message.players.length} world=${message.world.width}x${message.world.height} tick=${message.tickRateHz}Hz`,
+        );
         this.clearWorldState();
+        this.warnedNoLocalState = false;
         this.localId = message.id;
         for (const player of message.players) {
           this.spawnEntity(player);
         }
         this.localState =
           message.players.find((p) => p.id === this.localId) ?? null;
+        if (this.localState) {
+          console.info(
+            `[cyclo:game] local spawn at (${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)})`,
+          );
+        } else {
+          console.warn("[cyclo:game] welcome missing local player entry");
+        }
         this.playerCount = message.players.length;
         break;
+      }
 
       case ServerMessageType.PlayerJoined:
+        console.info(
+          `[cyclo:game] player joined ${message.player.id} "${message.player.name}" at (${message.player.x.toFixed(0)}, ${message.player.y.toFixed(0)})`,
+        );
         this.spawnEntity(message.player);
         this.playerCount = this.entities.size;
         break;
 
-      case ServerMessageType.PlayerLeft:
+      case ServerMessageType.PlayerLeft: {
+        const known = this.entities.has(message.id);
+        console.info(`[cyclo:game] player left ${message.id} (known=${known})`);
         this.entities.get(message.id)?.destroy();
         this.entities.delete(message.id);
         this.worldScene?.remove(message.id);
         this.playerCount = this.entities.size;
         break;
+      }
 
-      case ServerMessageType.State:
+      case ServerMessageType.State: {
+        const now = performance.now();
+        if (now - this.lastStateAt > 5000) {
+          console.debug(
+            `[cyclo:game] state flowing: ${message.players.length} players`,
+          );
+        }
+        this.lastStateAt = now;
         this.interpolator.push(message.players);
         this.reconcileLocalPlayer(message.players);
         // Names aren't part of the predicted/interpolated movement path —
@@ -262,6 +335,7 @@ export class GameScreen extends Container {
           this.entities.get(player.id)?.setName(player.name);
         }
         break;
+      }
 
       case ServerMessageType.Chat:
         this.chatBox.receive({ name: message.name, text: message.text });
@@ -272,6 +346,9 @@ export class GameScreen extends Container {
 
   private spawnEntity(snapshot: PlayerState): void {
     if (this.entities.has(snapshot.id)) return;
+    console.debug(
+      `[cyclo:game] spawn entity ${snapshot.id} "${snapshot.name}" at (${snapshot.x.toFixed(0)}, ${snapshot.y.toFixed(0)})`,
+    );
     const entity = new PlayerEntity(snapshot);
     this.entities.set(snapshot.id, entity);
     this.addChild(entity);
@@ -296,6 +373,15 @@ export class GameScreen extends Container {
     this.entities.get(id)?.setScreenPosition(sx, sy);
   }
 
+  private sendInput(input: InputState): void {
+    this.sendAccumulatorMs = 0;
+    this.network.send({
+      type: ClientMessageType.Input,
+      seq: this.network.nextSeq(),
+      input,
+    });
+  }
+
   /** Softly pulls the predicted local player back toward the server's authoritative position */
   private reconcileLocalPlayer(players: PlayerState[]): void {
     if (!this.localState || !this.localId) return;
@@ -307,9 +393,12 @@ export class GameScreen extends Container {
     const distance = Math.hypot(dx, dy);
 
     if (distance > RECONCILE_SNAP_DISTANCE) {
+      console.warn(
+        `[cyclo:game] reconcile SNAP gap=${distance.toFixed(0)} predicted=(${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)}) auth=(${authoritative.x.toFixed(0)}, ${authoritative.y.toFixed(0)})`,
+      );
       this.localState.x = authoritative.x;
       this.localState.y = authoritative.y;
-    } else if (distance > 0.5) {
+    } else if (distance > RECONCILE_DEADBAND) {
       this.localState.x += dx * RECONCILE_LERP;
       this.localState.y += dy * RECONCILE_LERP;
     }

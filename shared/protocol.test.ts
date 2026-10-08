@@ -6,8 +6,14 @@ import { parseClientMessage, sanitizeInputState } from "./protocol";
 describe("sanitizeInputState", () => {
   test("coerces arbitrary values to booleans", () => {
     assert.deepEqual(
-      sanitizeInputState({ up: 1, down: 0, left: "x", right: null }),
-      { up: true, down: false, left: true, right: false },
+      sanitizeInputState({
+        up: 1,
+        down: 0,
+        left: "x",
+        right: null,
+        charging: 1,
+      }),
+      { up: true, down: false, left: true, right: false, charging: true },
     );
   });
 
@@ -17,12 +23,14 @@ describe("sanitizeInputState", () => {
       down: false,
       left: false,
       right: false,
+      charging: false,
     });
     assert.deepEqual(sanitizeInputState({}), {
       up: false,
       down: false,
       left: false,
       right: false,
+      charging: false,
     });
   });
 
@@ -32,6 +40,7 @@ describe("sanitizeInputState", () => {
       down: false,
       left: false,
       right: false,
+      charging: false,
     });
   });
 });

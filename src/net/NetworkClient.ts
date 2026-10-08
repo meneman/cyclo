@@ -21,11 +21,13 @@ export class NetworkClient {
   constructor(private readonly url: string) {}
 
   public connect(): void {
+    console.info(`[cyclo:net] connect ${this.url}`);
     this.shouldReconnect = true;
     this.open();
   }
 
   public disconnect(): void {
+    console.info("[cyclo:net] disconnect");
     this.shouldReconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -36,7 +38,14 @@ export class NetworkClient {
   }
 
   public send(message: ClientMessage): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      if (message.type !== "input") {
+        console.debug(
+          `[cyclo:net] drop ${message.type} (socket state ${this.socket?.readyState ?? "none"})`,
+        );
+      }
+      return;
+    }
     this.socket.send(JSON.stringify(message));
   }
 
@@ -56,26 +65,40 @@ export class NetworkClient {
   }
 
   private open(): void {
+    console.info(`[cyclo:net] opening ${this.url}`);
     const socket = new WebSocket(this.url);
     this.socket = socket;
 
     socket.addEventListener("open", () => {
+      console.info("[cyclo:net] open");
       for (const handler of this.connectionHandlers) handler(true);
     });
 
     socket.addEventListener("message", (event: MessageEvent<unknown>) => {
       const message = parseServerMessage(event.data);
-      if (!message) return;
+      if (!message) {
+        console.warn("[cyclo:net] dropped unparseable server message");
+        return;
+      }
+      if (message.type !== "state") {
+        console.debug(`[cyclo:net] recv ${message.type}`);
+      }
       for (const handler of this.messageHandlers) handler(message);
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
+      console.warn(
+        `[cyclo:net] close code=${event.code} reason=${event.reason || "-"} reconnect=${this.shouldReconnect}`,
+      );
       for (const handler of this.connectionHandlers) handler(false);
       if (!this.shouldReconnect) return;
       this.reconnectTimer = setTimeout(() => this.open(), RECONNECT_DELAY_MS);
     });
 
-    socket.addEventListener("error", () => socket.close());
+    socket.addEventListener("error", () => {
+      console.warn("[cyclo:net] socket error");
+      socket.close();
+    });
   }
 }
 

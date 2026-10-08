@@ -38,8 +38,9 @@ src/net/
 
 src/app/screens/game/
   GameScreen.ts       owns network/input/interpolation, prediction + reconciliation, camera
-  WorldScene.ts       Three.js top-down view: blank green field + one black dot per player
-  PlayerEntity.ts     overlay name label + chat bubble (the dot lives in the Three.js scene)
+  WorldScene.ts       Three.js top-down view: green field + animated characters (Idle/Walk)
+  CharacterRoster.ts  roster (Quaternius CC0 GLBs) + deterministic per-player pick
+  PlayerEntity.ts     overlay name label + chat bubble (the character lives in the Three.js scene)
 ```
 
 `src/app/screens/main/` (MainScreen, Bouncer, Logo) and `LoadScreen` are leftover
@@ -72,9 +73,11 @@ PixiJS project-template scaffolding. `MainScreen` is **not wired up** —
 
 There is no map — players move freely in an open area (`WORLD_WIDTH` ×
 `WORLD_HEIGHT`, `shared/constants.ts`). `stepPlayer()`
-(`shared/simulation.ts`) moves at a constant speed along the held input
-direction (diagonals normalized) and clamps to the world bounds; new players
-spawn at the world center.
+(`shared/simulation.ts`) moves at a constant speed along one of 8 vectors
+resolved by `directionFromInput()`: 4 cardinals from single arrow keys, 4
+in-between from two-key chords (diagonals normalized, opposite keys cancel);
+movement clamps to the world bounds and new players spawn at the world
+center.
 
 ## Known gaps
 

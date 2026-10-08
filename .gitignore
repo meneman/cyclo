@@ -37,3 +37,4 @@ saves/
 public/assets
 .assetpack
 src/manifest.json
+*.zip

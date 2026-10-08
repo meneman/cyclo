@@ -77,6 +77,7 @@ export class StartScreen extends Container {
 
   private play(): void {
     const name = this.nameInput.value.trim().slice(0, 24) || DEFAULT_NAME;
+    console.info(`[cyclo:game] play as "${name}" -> GameScreen`);
     userSettings.setPlayerName(name);
     void engine().navigation.showScreen(GameScreen);
   }
