@@ -1,7 +1,8 @@
 # cyclo
 
-Top-down multiplayer prototype. PixiJS client + Bun WebSocket server, authoritative
-server simulation with client-side prediction.
+Top-down multiplayer prototype. Three.js world view + PixiJS HUD/chat overlay
+client + Bun WebSocket server, authoritative server simulation with
+client-side prediction.
 
 ## Running
 
@@ -37,7 +38,8 @@ src/net/
 
 src/app/screens/game/
   GameScreen.ts       owns network/input/interpolation, prediction + reconciliation, camera
-  PlayerEntity.ts     marker circle + name label
+  WorldScene.ts       Three.js top-down view: blank green field + one black dot per player
+  PlayerEntity.ts     overlay name label + chat bubble (the dot lives in the Three.js scene)
 ```
 
 `src/app/screens/main/` (MainScreen, Bouncer, Logo) and `LoadScreen` are leftover

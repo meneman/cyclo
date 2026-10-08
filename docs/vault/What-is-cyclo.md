@@ -8,8 +8,8 @@ shared world, each seeing the others move in near-real time.
 To prove out the networking core before building a real game on top of it —
 an authoritative Bun WebSocket server broadcasting snapshots at 20 Hz, with
 client-side prediction and reconciliation plus snapshot interpolation on the
-PixiJS client, sharing one simulation (`shared/simulation.ts`) as the single
-source of truth.
+Three.js client (PixiJS overlay for HUD/chat/name labels), sharing one
+simulation (`shared/simulation.ts`) as the single source of truth.
 
 ## What it is not
 

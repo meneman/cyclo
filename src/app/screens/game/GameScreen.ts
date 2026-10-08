@@ -1,5 +1,5 @@
 import type { Ticker } from "pixi.js";
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Text } from "pixi.js";
 
 import {
   INPUT_SEND_INTERVAL_MS,
@@ -22,13 +22,12 @@ import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
 import { PlayerEntity } from "./PlayerEntity";
+import { WorldScene } from "./WorldScene";
 
 /** Fraction of the local/server position gap corrected per state update */
 const RECONCILE_LERP = 0.15;
 /** Beyond this gap we snap instead of smoothly correcting (teleport / desync) */
 const RECONCILE_SNAP_DISTANCE = 200;
-/** Camera zoom — renders closer than actual world scale */
-const CAMERA_ZOOM = 3;
 /** Toggles the coords/FPS readout — Backquote, since F3 is hijacked by browser "Find" */
 const DEBUG_TOGGLE_KEY = "Backquote";
 /** Focuses the chat input — clicking it does the same */
@@ -37,19 +36,21 @@ const CHAT_OPEN_KEY = "KeyY";
 const CHAT_MARGIN = 16;
 /** Margin from the right viewport edge for the connection HUD, top-right — mirrors the chat panel on the left */
 const HUD_MARGIN = 12;
-/** World background fill — dark so the colored player markers stand out */
-const WORLD_FILL = 0x111827;
-/** HUD/debug text fill */
+/** HUD/debug text fill — light so it stays readable over the green field */
 const HUD_FILL = 0xe6edf3;
 
-/** Full-screen top-down multiplayer world: camera follows the local (predicted) player */
+/**
+ * Full-screen top-down multiplayer world. The Three.js scene behind the
+ * transparent Pixi overlay draws the green field and the black player dots;
+ * this screen owns network/input/interpolation, prediction + reconciliation,
+ * and the overlay (name labels, chat, HUD). The camera follows the local
+ * (predicted) player.
+ */
 export class GameScreen extends Container {
   /** Assets bundles required by this screen */
-  public static assetBundles = ["main"];
+  public static assetBundles: string[] = [];
 
-  private readonly camera = new Container();
-  /** Plain world background — lives in the camera layer behind the player entities. */
-  private readonly worldLayer = new Graphics();
+  private worldScene: WorldScene | null = null;
   private readonly hud: Text;
   private readonly debugText: Text;
   private readonly chatBox = new ChatBox();
@@ -71,17 +72,8 @@ export class GameScreen extends Container {
   private playerCount = 0;
   private sendAccumulatorMs = 0;
 
-  private viewWidth = 0;
-  private viewHeight = 0;
-
   constructor() {
     super();
-
-    this.camera.scale.set(CAMERA_ZOOM);
-    // World backdrop first, so player entities spawn in front of it.
-    this.camera.addChild(this.worldLayer);
-    this.drawWorld();
-    this.addChild(this.camera);
 
     // Anchored top-right (right-aligned) since the chat panel now occupies the top-left
     this.hud = new Text({
@@ -107,6 +99,8 @@ export class GameScreen extends Container {
 
   /** Called by Navigation right after the screen is added to the stage */
   public prepare(): void {
+    this.worldScene = new WorldScene();
+    this.worldScene.setSize(window.innerWidth, window.innerHeight);
     this.unsubscribeMessage = this.network.onMessage((message) =>
       this.handleServerMessage(message),
     );
@@ -126,6 +120,7 @@ export class GameScreen extends Container {
   }
 
   public update(ticker: Ticker): void {
+    if (!this.worldScene) return;
     this.input.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
@@ -134,14 +129,27 @@ export class GameScreen extends Container {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
       stepPlayer(this.localState, currentInput, dtSeconds);
-      this.entities.get(this.localState.id)?.setState(this.localState);
-      this.updateCamera(this.localState.x, this.localState.y);
+      this.worldScene.move(
+        this.localState.id,
+        this.localState.x,
+        this.localState.y,
+      );
+      this.placeLabel(this.localState.id, this.localState.x, this.localState.y);
     }
 
-    for (const [id, entity] of this.entities) {
+    for (const [id] of this.entities) {
       if (id === this.localId) continue;
       const sample = this.interpolator.sample(id);
-      if (sample) entity.setState(sample);
+      if (sample) {
+        this.worldScene.move(id, sample.x, sample.y);
+        this.placeLabel(id, sample.x, sample.y);
+      }
+    }
+
+    if (this.localState) {
+      this.worldScene.render(this.localState.x, this.localState.y);
+    } else {
+      this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
     }
 
     this.sendAccumulatorMs += ticker.deltaMS;
@@ -171,14 +179,10 @@ export class GameScreen extends Container {
 
   /** Resize the screen, fired whenever window size changes */
   public resize(width: number, height: number): void {
-    this.viewWidth = width;
-    this.viewHeight = height;
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
     this.debugText.position.set(width - HUD_MARGIN, 30);
-    if (this.localState) {
-      this.updateCamera(this.localState.x, this.localState.y);
-    }
+    this.worldScene?.setSize(width, height);
   }
 
   /** Fully reset — the screen instance may be pooled and reused */
@@ -193,9 +197,11 @@ export class GameScreen extends Container {
     this.entities.clear();
     this.interpolator.clear();
 
+    this.worldScene?.destroy();
+    this.worldScene = null;
+
     this.localId = null;
     this.localState = null;
-    this.drawWorld();
     this.playerCount = 0;
     this.connected = false;
     this.debugEnabled = false;
@@ -224,7 +230,6 @@ export class GameScreen extends Container {
         // snapshots from the previous session would otherwise linger as
         // ghosts — start from a clean slate on every Welcome.
         this.clearWorldState();
-        this.drawWorld();
         this.localId = message.id;
         for (const player of message.players) {
           this.spawnEntity(player);
@@ -242,19 +247,19 @@ export class GameScreen extends Container {
       case ServerMessageType.PlayerLeft:
         this.entities.get(message.id)?.destroy();
         this.entities.delete(message.id);
+        this.worldScene?.remove(message.id);
         this.playerCount = this.entities.size;
         break;
 
       case ServerMessageType.State:
         this.interpolator.push(message.players);
         this.reconcileLocalPlayer(message.players);
-        // Names/colors aren't part of the predicted/interpolated movement path —
+        // Names aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
         // after the server's initial Welcome/PlayerJoined snapshot, so the
         // real name only shows up once it comes back through a state tick.
         for (const player of message.players) {
           this.entities.get(player.id)?.setName(player.name);
-          this.entities.get(player.id)?.setColor(player.color);
         }
         break;
 
@@ -269,7 +274,9 @@ export class GameScreen extends Container {
     if (this.entities.has(snapshot.id)) return;
     const entity = new PlayerEntity(snapshot);
     this.entities.set(snapshot.id, entity);
-    this.camera.addChild(entity);
+    this.addChild(entity);
+    this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y);
+    this.placeLabel(snapshot.id, snapshot.x, snapshot.y);
   }
 
   /** Drops all per-session world state (entities, interpolation history,
@@ -278,14 +285,15 @@ export class GameScreen extends Container {
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
     this.interpolator.clear();
+    this.worldScene?.clear();
     this.localState = null;
-    this.drawWorld();
   }
 
-  /** Redraws the plain world background. */
-  private drawWorld(): void {
-    this.worldLayer.clear();
-    this.worldLayer.rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill(WORLD_FILL);
+  /** Positions a player's overlay label from its world position */
+  private placeLabel(id: string, x: number, y: number): void {
+    if (!this.worldScene) return;
+    const { sx, sy } = this.worldScene.project(x, y);
+    this.entities.get(id)?.setScreenPosition(sx, sy);
   }
 
   /** Softly pulls the predicted local player back toward the server's authoritative position */
@@ -306,28 +314,4 @@ export class GameScreen extends Container {
       this.localState.y += dy * RECONCILE_LERP;
     }
   }
-
-  private updateCamera(focusX: number, focusY: number): void {
-    const halfW = this.viewWidth / 2;
-    const halfH = this.viewHeight / 2;
-    // Half the visible world extent, in world units, at the current zoom.
-    const halfWorldW = halfW / CAMERA_ZOOM;
-    const halfWorldH = halfH / CAMERA_ZOOM;
-
-    const camX =
-      WORLD_WIDTH <= halfWorldW * 2
-        ? WORLD_WIDTH / 2
-        : clamp(focusX, halfWorldW, WORLD_WIDTH - halfWorldW);
-    const camY =
-      WORLD_HEIGHT <= halfWorldH * 2
-        ? WORLD_HEIGHT / 2
-        : clamp(focusY, halfWorldH, WORLD_HEIGHT - halfWorldH);
-
-    this.camera.x = halfW - camX * CAMERA_ZOOM;
-    this.camera.y = halfH - camY * CAMERA_ZOOM;
-  }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }

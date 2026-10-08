@@ -6,20 +6,19 @@ import type { PlayerSnapshot } from "../../../../shared/types";
 /** How long a chat bubble stays above a player before fading out */
 const CHAT_BUBBLE_DURATION_MS = 5000;
 
-/** Visual representation of one player: a colored marker circle + name label */
+/**
+ * Screen-space label for one player: name tag + chat bubble. The player
+ * marker itself (a black dot) is drawn by the Three.js world scene behind
+ * the transparent Pixi overlay — this container is positioned every frame
+ * from `WorldScene.project()`.
+ */
 export class PlayerEntity extends Container {
-  private readonly marker: Graphics;
   private readonly nameLabel: Text;
   private chatBubble: Container | null = null;
   private chatBubbleTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(snapshot: PlayerSnapshot) {
     super();
-
-    this.marker = new Graphics()
-      .circle(0, 0, PLAYER_RADIUS)
-      .fill({ color: snapshot.color });
-    this.addChild(this.marker);
 
     this.nameLabel = new Text({
       text: snapshot.name,
@@ -34,21 +33,15 @@ export class PlayerEntity extends Container {
     this.nameLabel.anchor.set(0.5, 1);
     this.nameLabel.y = -PLAYER_RADIUS - 14;
     this.addChild(this.nameLabel);
-
-    this.setState(snapshot);
   }
 
-  public setState(snapshot: Pick<PlayerSnapshot, "x" | "y">): void {
-    this.x = snapshot.x;
-    this.y = snapshot.y;
+  public setScreenPosition(x: number, y: number): void {
+    this.x = x;
+    this.y = y;
   }
 
   public setName(name: string): void {
     this.nameLabel.text = name;
-  }
-
-  public setColor(color: number): void {
-    this.marker.clear().circle(0, 0, PLAYER_RADIUS).fill({ color });
   }
 
   /** Shows a speech bubble above the player, replacing any that's still showing */

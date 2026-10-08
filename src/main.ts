@@ -18,6 +18,9 @@ setEngine(engine);
   // Initialize the creation engine instance
   await engine.init({
     background: "#000000",
+    // Transparent Pixi canvas: the Three.js world scene renders on a canvas
+    // stacked behind it, while HUD/chat/labels stay in the Pixi overlay.
+    backgroundAlpha: 0,
     resizeOptions: { minWidth: 1024, minHeight: 600, letterbox: false },
   });
 
