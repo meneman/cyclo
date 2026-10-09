@@ -1,7 +1,7 @@
 # Vault – Overview
 
 This folder (`docs/vault`) is an **Obsidian vault** — the knowledge and notes
-area for [cyclo](../../README.md), a top-down multiplayer prototype (PixiJS
+area for [golfi](../../README.md), a top-down multiplayer prototype (PixiJS
 client + Bun WebSocket server, authoritative server simulation with
 client-side prediction).
 
@@ -17,7 +17,7 @@ client-side prediction).
 
 ## What goes here?
 
-Start: [[What-is-cyclo]] — what the game is, why it exists, and what it is not.
+Start: [[What-is-golfi]] — what the game is, why it exists, and what it is not.
 
 - **Document gameplay and tech:** movement feel, netcode model, client
   prediction, interpolation, camera
@@ -30,7 +30,7 @@ server's memory — this vault is for notes, research, and overview around it.
 
 ## Structure
 
-- [[What-is-cyclo]] – purpose, scope boundaries, typical play flow
+- [[What-is-golfi]] – purpose, scope boundaries, typical play flow
 - `todo_kanban.md` – task board (`todo` / `progress` / `waiting` / `done`;
   edited via the kanban agent skills, never hand-edited in source mode)
 

@@ -5,6 +5,8 @@ import {
   HIT_RADIUS,
   PLAYER_RADIUS,
   SWING_ANIMATION_DURATION_SECONDS,
+  VIEWBOX_HEIGHT,
+  VIEWBOX_WIDTH,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
@@ -160,8 +162,8 @@ export class WorldScene {
   private readonly rangeGeometry: THREE.RingGeometry;
   private readonly landingMarker: THREE.Group;
 
-  private viewWidth = 1;
-  private viewHeight = 1;
+  private viewWidth = VIEWBOX_WIDTH;
+  private viewHeight = VIEWBOX_HEIGHT;
   private focusX = WORLD_WIDTH / 2;
   private focusY = WORLD_HEIGHT / 2;
   private frames = 0;
@@ -171,17 +173,11 @@ export class WorldScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const canvas = this.renderer.domElement;
-    canvas.style.position = "fixed";
-    canvas.style.inset = "0";
-    canvas.style.zIndex = "0";
-    document.body.appendChild(canvas);
-
-    // Lift the Pixi canvas above the Three.js canvas.
-    const pixiCanvas = document.querySelector("#pixi-container canvas");
-    if (pixiCanvas instanceof HTMLElement) {
-      pixiCanvas.style.position = "relative";
-      pixiCanvas.style.zIndex = "1";
-    }
+    const mountContainer =
+      document.getElementById("three-container") ??
+      document.getElementById("viewbox") ??
+      document.body;
+    mountContainer.appendChild(canvas);
 
     this.scene.background = new THREE.Color(BACKDROP_COLOR);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1a2b1a, 1.0));
@@ -249,19 +245,19 @@ export class WorldScene {
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
     this.updateCamera(this.focusX, this.focusY);
     console.info(
-      `[cyclo:scene] created: field ${WORLD_WIDTH}x${WORLD_HEIGHT}, camera near=${this.camera.near} far=${this.camera.far} z=${this.camera.position.z} zoom=${CAMERA_ZOOM} charScale=${CHARACTER_SCALE}, waiting for character templates`,
+      `[golfi:scene] created: field ${WORLD_WIDTH}x${WORLD_HEIGHT}, camera near=${this.camera.near} far=${this.camera.far} z=${this.camera.position.z} zoom=${CAMERA_ZOOM} charScale=${CHARACTER_SCALE}, waiting for character templates`,
     );
 
     void loadCharacterTemplates().then((templates) => {
       this.templates = templates;
       const loaded = templates.filter((t) => t !== null).length;
       console.info(
-        `[cyclo:scene] templates ready: ${loaded}/${templates.length} loaded, flushing ${this.pendingSpawns.size} queued spawns`,
+        `[golfi:scene] templates ready: ${loaded}/${templates.length} loaded, flushing ${this.pendingSpawns.size} queued spawns`,
       );
       templates.forEach((template, index) => {
         if (!template) {
           console.warn(
-            `[cyclo:scene] template ${index} failed to load, those players fall back to dots`,
+            `[golfi:scene] template ${index} failed to load, those players fall back to dots`,
           );
           return;
         }
@@ -270,11 +266,11 @@ export class WorldScene {
           .getSize(new THREE.Vector3()).y;
         const scaledHeight = height * CHARACTER_SCALE;
         console.info(
-          `[cyclo:scene] template loaded: ${template.id} (${template.clips.length} clips [${template.clips.map((c) => c.name).join(", ")}], raw height ${height.toFixed(1)}u -> scaled ${scaledHeight.toFixed(1)}u vs camera z=${this.camera.position.z})`,
+          `[golfi:scene] template loaded: ${template.id} (${template.clips.length} clips [${template.clips.map((c) => c.name).join(", ")}], raw height ${height.toFixed(1)}u -> scaled ${scaledHeight.toFixed(1)}u vs camera z=${this.camera.position.z})`,
         );
         if (scaledHeight > this.camera.position.z) {
           console.warn(
-            `[cyclo:scene] ${template.id} scaled height ${scaledHeight.toFixed(1)}u exceeds camera z=${this.camera.position.z} — camera sits INSIDE the mesh, expect near-plane clipping flashes`,
+            `[golfi:scene] ${template.id} scaled height ${scaledHeight.toFixed(1)}u exceeds camera z=${this.camera.position.z} — camera sits INSIDE the mesh, expect near-plane clipping flashes`,
           );
         }
       });
@@ -285,13 +281,17 @@ export class WorldScene {
     });
   }
 
-  public setSize(width: number, height: number): void {
+  public setSize(
+    width: number = VIEWBOX_WIDTH,
+    height: number = VIEWBOX_HEIGHT,
+  ): void {
     this.viewWidth = width;
     this.viewHeight = height;
     console.info(
-      `[cyclo:scene] size ${width}x${height}, frustum ${(width / CAMERA_ZOOM).toFixed(0)}x${(height / CAMERA_ZOOM).toFixed(0)} world units`,
+      `[golfi:scene] size ${width}x${height}, frustum ${(width / CAMERA_ZOOM).toFixed(0)}x${(height / CAMERA_ZOOM).toFixed(0)} world units`,
     );
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.camera.left = -width / 2 / CAMERA_ZOOM;
     this.camera.right = width / 2 / CAMERA_ZOOM;
     this.camera.top = height / 2 / CAMERA_ZOOM;
@@ -301,16 +301,16 @@ export class WorldScene {
 
   public spawn(id: string, x: number, y: number): void {
     if (this.players.has(id) || this.pendingSpawns.has(id)) {
-      console.debug(`[cyclo:scene] spawn ${id} ignored (already known)`);
+      console.debug(`[golfi:scene] spawn ${id} ignored (already known)`);
       return;
     }
     const charIndex = characterForPlayerId(id);
     console.debug(
-      `[cyclo:scene] spawn ${id} at (${x.toFixed(0)}, ${y.toFixed(0)}) charIndex=${charIndex} templates=${this.templates ? "ready" : "loading"}`,
+      `[golfi:scene] spawn ${id} at (${x.toFixed(0)}, ${y.toFixed(0)}) charIndex=${charIndex} templates=${this.templates ? "ready" : "loading"}`,
     );
     if (!this.templates) {
       this.pendingSpawns.set(id, { x, y, charIndex });
-      console.info(`[cyclo:scene] spawn queued for ${id} (templates loading)`);
+      console.info(`[golfi:scene] spawn queued for ${id} (templates loading)`);
       return;
     }
     this.instantiate(id, x, y, charIndex);
@@ -333,7 +333,7 @@ export class WorldScene {
       } else if (!this.unknownMoveIds.has(id)) {
         this.unknownMoveIds.add(id);
         console.warn(
-          `[cyclo:scene] move for unknown player ${id} (no view, not queued) — spawn likely missed`,
+          `[golfi:scene] move for unknown player ${id} (no view, not queued) — spawn likely missed`,
         );
       }
       return;
@@ -518,7 +518,7 @@ export class WorldScene {
     const view = this.players.get(id);
     const wasPending = this.pendingSpawns.delete(id);
     console.debug(
-      `[cyclo:scene] remove ${id} (view=${Boolean(view)}, queued=${wasPending})`,
+      `[golfi:scene] remove ${id} (view=${Boolean(view)}, queued=${wasPending})`,
     );
     this.unknownMoveIds.delete(id);
     if (!view) return;
@@ -558,21 +558,21 @@ export class WorldScene {
     this.frames++;
     if (this.frames === 1) {
       console.info(
-        `[cyclo:scene] first frame rendered (${this.viewWidth}x${this.viewHeight}), ${this.players.size} chars, queued=${this.pendingSpawns.size}`,
+        `[golfi:scene] first frame rendered (${this.viewWidth}x${this.viewHeight}), ${this.players.size} chars, queued=${this.pendingSpawns.size}`,
       );
       if (this.players.size === 0 && this.pendingSpawns.size === 0) {
         console.warn(
-          "[cyclo:scene] first frame has NO players and nothing queued — green-only screen expected until Welcome/spawn arrives",
+          "[golfi:scene] first frame has NO players and nothing queued — green-only screen expected until Welcome/spawn arrives",
         );
       }
       if (this.pendingSpawns.size > 0 && !this.templates) {
         console.warn(
-          `[cyclo:scene] ${this.pendingSpawns.size} spawns still queued behind template loading on first frame`,
+          `[golfi:scene] ${this.pendingSpawns.size} spawns still queued behind template loading on first frame`,
         );
       }
     } else if (this.frames % 300 === 0) {
       console.info(
-        `[cyclo:scene] heartbeat: focus (${this.focusX.toFixed(0)}, ${this.focusY.toFixed(0)}), ${this.players.size} chars, queued=${this.pendingSpawns.size}, camera (${this.camera.position.x.toFixed(0)}, ${this.camera.position.y.toFixed(0)}, z=${this.camera.position.z})`,
+        `[golfi:scene] heartbeat: focus (${this.focusX.toFixed(0)}, ${this.focusY.toFixed(0)}), ${this.players.size} chars, queued=${this.pendingSpawns.size}, camera (${this.camera.position.x.toFixed(0)}, ${this.camera.position.y.toFixed(0)}, z=${this.camera.position.z})`,
       );
     }
   }
@@ -586,7 +586,7 @@ export class WorldScene {
   }
 
   public destroy(): void {
-    console.info("[cyclo:scene] destroyed");
+    console.info("[golfi:scene] destroyed");
     this.clear();
     this.scene.clear();
     this.dotGeometry.dispose();
@@ -619,11 +619,6 @@ export class WorldScene {
     disposeBloodStainResources();
     this.renderer.dispose();
     this.renderer.domElement.remove();
-    const pixiCanvas = document.querySelector("#pixi-container canvas");
-    if (pixiCanvas instanceof HTMLElement) {
-      pixiCanvas.style.position = "";
-      pixiCanvas.style.zIndex = "";
-    }
   }
 
   private instantiate(
@@ -656,13 +651,13 @@ export class WorldScene {
       walk = this.action(mixer, template, "Walk", id);
       idle?.play();
       console.info(
-        `[cyclo:scene] spawn ${id} as ${template.id} at (${x.toFixed(0)}, ${y.toFixed(0)}) scale=${CHARACTER_SCALE} idle=${Boolean(idle)} walk=${Boolean(walk)}`,
+        `[golfi:scene] spawn ${id} as ${template.id} at (${x.toFixed(0)}, ${y.toFixed(0)}) scale=${CHARACTER_SCALE} idle=${Boolean(idle)} walk=${Boolean(walk)}`,
       );
     } else {
       yaw.add(new THREE.Mesh(this.dotGeometry, this.dotMaterial));
       const dotRadius = PLAYER_RADIUS * CHARACTER_SCALE;
       console.warn(
-        `[cyclo:scene] spawn ${id} as fallback dot (no template for charIndex=${charIndex}); effective dot radius ${dotRadius.toFixed(2)}u — nearly invisible at zoom ${CAMERA_ZOOM}`,
+        `[golfi:scene] spawn ${id} as fallback dot (no template for charIndex=${charIndex}); effective dot radius ${dotRadius.toFixed(2)}u — nearly invisible at zoom ${CAMERA_ZOOM}`,
       );
     }
 
@@ -702,13 +697,13 @@ export class WorldScene {
     const clip = pickClip(template.clips, kind);
     if (!clip) {
       console.warn(
-        `[cyclo:scene] ${playerId} (${template.id}): no ${kind} clip and no fallback — animations missing`,
+        `[golfi:scene] ${playerId} (${template.id}): no ${kind} clip and no fallback — animations missing`,
       );
       return null;
     }
     if (!clip.name.endsWith(kind)) {
       console.warn(
-        `[cyclo:scene] ${playerId} (${template.id}): no ${kind} clip, falling back to "${clip.name}"`,
+        `[golfi:scene] ${playerId} (${template.id}): no ${kind} clip, falling back to "${clip.name}"`,
       );
     }
     return mixer.clipAction(clip);

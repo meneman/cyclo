@@ -120,7 +120,7 @@ card is a new invocation of this skill, not a continuation of this one.
    - Leave every other card in the file untouched.
    - **Blocked instead of done (exception only):** if something went wrong
      in `progress`, or a decision came up that you cannot reasonably make
-     alone (and `AskUserQuestion` can't resolve it either — e.g. it needs
+     alone (and `ask_question` can't resolve it either — e.g. it needs
      input only the user can give, or external access you don't have), and
      there is genuinely no other way to complete the card, move it from
      `progress` to `waiting` instead of `done`. Keep the checkbox unchecked
@@ -166,7 +166,7 @@ There's no single rule — weigh these, in roughly this priority order:
 4. **Genuinely ready over merely next.** If the top candidate still has an
    open judgment call beyond what's reasonable to decide unilaterally (rare —
    `todo-intake-kanban` front-loads most of these), either resolve it with
-   `AskUserQuestion` or pick the next-best ready card instead of guessing.
+   `ask_question` or pick the next-best ready card instead of guessing.
 5. **Prefer smaller, self-contained, lower-risk cards when otherwise tied**
    — keeps the board moving smoothly instead of getting stuck mid-way
    through a large structural change. But don't perpetually dodge the big

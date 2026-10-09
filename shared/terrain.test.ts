@@ -30,8 +30,8 @@ describe("terrain", () => {
 
     // Fairway: standard
     assert.equal(fairway.carryMultiplier, 1.0);
-    assert.equal(fairway.rollDecel, 120);
-    assert.equal(fairway.restitution, 0.3);
+    assert.equal(fairway.rollDecel, 95);
+    assert.equal(fairway.restitution, 0.55);
 
     // Rough: higher deceleration, reduced carry
     assert.ok(

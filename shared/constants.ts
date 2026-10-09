@@ -6,6 +6,15 @@
 export const WORLD_WIDTH = 3000;
 export const WORLD_HEIGHT = 3000;
 
+/**
+ * Locked design viewbox dimensions (16:9).
+ * Both Three.js camera frustum and PixiJS UI overlay are locked to this logical
+ * viewport so browser zoom or window resizing cannot reveal more of the map.
+ */
+export const VIEWBOX_WIDTH = 1920;
+export const VIEWBOX_HEIGHT = 1080;
+export const VIEWBOX_ASPECT_RATIO = VIEWBOX_WIDTH / VIEWBOX_HEIGHT;
+
 /** Server simulation rate */
 export const TICK_RATE_HZ = 20;
 export const TICK_INTERVAL_MS = 1000 / TICK_RATE_HZ;
@@ -24,8 +33,8 @@ export const PLAYER_RADIUS = 14; // visual size (marker, world-bound clamp)
 export const PLAYER_HEIGHT = 29;
 /** Duration in seconds that a player stays despawned as a blood stain after being hit */
 export const KNOCKDOWN_DURATION_SECONDS = 1.5;
-/** Fraction of velocity kept when a golf ball bounces off a player */
-export const BALL_PLAYER_RESTITUTION = 0.5;
+/** Fraction of velocity kept when a golf ball bounces off a player — punchy arcade deflection */
+export const BALL_PLAYER_RESTITUTION = 0.75;
 
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
 export const WORLD_TOPIC = "world";
@@ -60,29 +69,29 @@ export const IMPACT_DELAY_SECONDS =
  */
 export const BALL_RADIUS = 1.5;
 
-/** Game gravity (u/s²) — tuned for ~1.6s hang time on a full shot, not realism */
-export const BALL_GRAVITY = 135;
-/** Launch elevation of every shot, in radians (45°) */
-export const BALL_LAUNCH_ANGLE = Math.PI / 4;
+/** Game gravity (u/s²) — snappy arcade gravity for fast, punchy flight */
+export const BALL_GRAVITY = 220;
+/** Launch elevation of every shot, in radians (22.5° for low, screaming drives) */
+export const BALL_LAUNCH_ANGLE = Math.PI / 8;
 /** Carry (distance to the first ground contact) at minimal power, world units */
-export const BALL_MIN_CARRY = 20;
-/** Carry at full power — a tenth of the field width */
-export const BALL_MAX_CARRY = 300;
+export const BALL_MIN_CARRY = 25;
+/** Carry at full power — fast and rewarding across the open course */
+export const BALL_MAX_CARRY = 350;
 /** Power curve exponent: >1 makes low charges more precise for short shots */
 export const BALL_POWER_EXP = 1.2;
 
-/** Fraction of vertical speed kept on each bounce */
-export const BALL_RESTITUTION = 0.3;
-/** Fraction of horizontal speed kept on each bounce */
-export const BALL_BOUNCE_FRICTION = 0.6;
+/** Fraction of vertical speed kept on each bounce — crisp, elastic arcade bounce */
+export const BALL_RESTITUTION = 0.55;
+/** Fraction of horizontal speed kept on each bounce — skips forward with high speed */
+export const BALL_BOUNCE_FRICTION = 0.75;
 /** Below this downward speed (u/s) a landing stops bouncing and starts rolling */
-export const BALL_MIN_BOUNCE_SPEED = 15;
+export const BALL_MIN_BOUNCE_SPEED = 20;
 /** Rolling deceleration on grass (u/s²) */
-export const BALL_ROLL_DECEL = 120;
+export const BALL_ROLL_DECEL = 95;
 /** Rolling speed (u/s) below which the ball comes to rest */
 export const BALL_REST_SPEED = 2;
-/** Fraction of speed kept when bouncing off the field border */
-export const BALL_WALL_RESTITUTION = 0.5;
+/** Fraction of speed kept when bouncing off the field border — energetic ricochets */
+export const BALL_WALL_RESTITUTION = 0.75;
 /** Fixed physics sub-step (s) — server ticks and client frames both split into these */
 export const BALL_SUBSTEP_SECONDS = 1 / 240;
 

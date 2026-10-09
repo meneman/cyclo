@@ -29,7 +29,7 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
-      console.log(`[cyclo:ws] open ${ws.data.playerId}`);
+      console.log(`[golfi:ws] open ${ws.data.playerId}`);
       ws.subscribe(WORLD_TOPIC);
       world.addPlayer(ws.data.playerId, ws);
     },
@@ -37,14 +37,14 @@ const server = Bun.serve<SocketData>({
       const message = parseClientMessage(raw);
       if (!message) {
         console.warn(
-          `[cyclo:ws] dropped malformed message from ${ws.data.playerId}`,
+          `[golfi:ws] dropped malformed message from ${ws.data.playerId}`,
         );
         return;
       }
       world.handleMessage(ws.data.playerId, message);
     },
     close(ws) {
-      console.log(`[cyclo:ws] close ${ws.data.playerId}`);
+      console.log(`[golfi:ws] close ${ws.data.playerId}`);
       world.removePlayer(ws.data.playerId);
     },
   },
@@ -52,4 +52,4 @@ const server = Bun.serve<SocketData>({
 
 world.start(server);
 
-console.log(`cyclo server listening on ws://localhost:${server.port}/ws`);
+console.log(`golfi server listening on ws://localhost:${server.port}/ws`);

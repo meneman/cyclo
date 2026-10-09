@@ -1,4 +1,4 @@
-# cyclo
+# golfi
 
 Top-down multiplayer prototype. Three.js world view + PixiJS HUD/chat overlay
 client + Bun WebSocket server, authoritative server simulation with

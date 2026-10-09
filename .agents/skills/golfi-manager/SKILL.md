@@ -1,9 +1,9 @@
 ---
-name: cyclo-manager
-description: Run, build, and verify the cyclo multiplayer prototype (PixiJS client + Bun WebSocket server).
+name: golfi-manager
+description: Run, build, and verify the golfi multiplayer prototype (PixiJS client + Bun WebSocket server).
 ---
 
-# Cyclo Manager Skill
+# Golfi Manager Skill
 
 This skill lets the agent run the game's dev loop and verify changes using
 the repo's real scripts. There is no database and no CLI data tooling — the

@@ -23,33 +23,33 @@ export const TERRAIN_PROPERTIES: Record<TerrainType, TerrainProperties> = {
   fairway: {
     type: "fairway",
     name: "Fairway",
-    rollDecel: BALL_ROLL_DECEL, // 120 u/s² (standard)
-    restitution: BALL_RESTITUTION, // 0.3
-    bounceFriction: BALL_BOUNCE_FRICTION, // 0.6
+    rollDecel: BALL_ROLL_DECEL, // 95 u/s² (arcade standard)
+    restitution: BALL_RESTITUTION, // 0.55
+    bounceFriction: BALL_BOUNCE_FRICTION, // 0.75
     carryMultiplier: 1.0,
   },
   green: {
     type: "green",
     name: "Green",
-    rollDecel: 55, // Low deceleration, smooth roll
-    restitution: 0.25,
-    bounceFriction: 0.7,
+    rollDecel: 45, // Low deceleration, smooth roll
+    restitution: 0.45,
+    bounceFriction: 0.85,
     carryMultiplier: 1.0,
   },
   rough: {
     type: "rough",
     name: "Rough",
-    rollDecel: 260, // Higher deceleration
-    restitution: 0.18, // Cushioned bounce
-    bounceFriction: 0.4,
+    rollDecel: 200, // Moderately high deceleration
+    restitution: 0.35, // Solid bounce
+    bounceFriction: 0.55,
     carryMultiplier: 0.75, // Reduced carry (25% penalty)
   },
   bunker: {
     type: "bunker",
     name: "Sand Bunker",
-    rollDecel: 650, // High deceleration, ball stops quickly
-    restitution: 0.08, // Low bounce, thud in sand
-    bounceFriction: 0.2, // Sand absorbs forward momentum
+    rollDecel: 550, // High deceleration, ball stops quickly
+    restitution: 0.12, // Low bounce, thud in sand
+    bounceFriction: 0.25, // Sand absorbs forward momentum
     carryMultiplier: 0.6, // Blasting out of bunker penalty
   },
 };

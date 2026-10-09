@@ -52,7 +52,7 @@ re-derive scope or guess intent.
    more than ~3-4 questions. If the instruction is already unambiguous once
    you've read the code, skip straight to step 5.
 
-4. **Ask via `AskUserQuestion`, not open-ended prose.** Give each question
+4. **Ask via the `ask_question` tool, not open-ended prose.** Give each question
    2-4 concrete, mutually exclusive options with short descriptions (a
    `preview` is worth adding when a visual mockup makes the choice clearer
    than words, e.g. comparing two ways of laying out values). Prefer this

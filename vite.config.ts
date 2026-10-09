@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 3331,
     open: true,
-    allowedHosts: ["cyclo.wohnli.com"],
+    allowedHosts: ["golfi.wohnli.com"],
     proxy: {
       "/ws": {
         target: "ws://localhost:3332",

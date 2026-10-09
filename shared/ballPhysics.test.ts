@@ -21,7 +21,7 @@ import {
   stepBall,
   strikeBall,
 } from "./ballPhysics";
-import type { PlayerState } from "./types";
+import type { BallState, HoleState, PlayerState } from "./types";
 
 describe("ballPhysics", () => {
   test("carryForPower scales between min and max carry", () => {
@@ -270,5 +270,90 @@ describe("ballPhysics", () => {
     stepBall(ball, 0.5, undefined, [target]);
     assert.equal(target.knockdownTimer, KNOCKDOWN_DURATION_SECONDS);
     assert.ok(ball.vx < 0, "Ball should have bounced off target");
+  });
+
+  test("stepBall invokes onPlayerHit callback on collision", () => {
+    const target: PlayerState = {
+      id: "target",
+      name: "Target",
+      x: 350,
+      y: 200,
+      color: 0,
+    };
+    const ball = createBall("b1", "shooter", 0, 300, 200);
+    ball.lastHitBy = "shooter";
+    ball.resting = false;
+    ball.vx = 200;
+    ball.vy = 0;
+    ball.z = 10;
+
+    let hitVictim: PlayerState | null = null;
+    let hitBall: BallState | null = null;
+
+    stepBall(ball, 0.5, undefined, [target], (b, victim) => {
+      hitBall = b;
+      hitVictim = victim;
+    });
+
+    assert.equal(hitVictim, target);
+    assert.equal(hitBall, ball);
+  });
+
+  test("stepBall detects a ball that lands on a hole from the air and triggers onHoleScored", () => {
+    const hole: HoleState = {
+      id: "hole-test",
+      x: 500,
+      y: 500,
+      radius: 35,
+    };
+    // Ball descending toward (500, 500)
+    const ball = createBall("b1", "shooter", 0, 500, 500);
+    ball.resting = false;
+    ball.z = 10;
+    ball.vz = -50; // falling down
+    ball.vx = 0;
+    ball.vy = 0;
+
+    let scoredHole: HoleState | null = null;
+    let scoredBall: BallState | null = null;
+
+    stepBall(ball, 0.3, undefined, undefined, undefined, [hole], (b, h) => {
+      scoredBall = b;
+      scoredHole = h;
+    });
+
+    assert.equal(scoredHole, hole);
+    assert.equal(scoredBall, ball);
+    assert.equal(ball.resting, true);
+    assert.equal(ball.z, 0);
+    assert.equal(ball.vx, 0);
+    assert.equal(ball.vy, 0);
+  });
+
+  test("stepBall does not trigger hole point when ball is flying high above hole", () => {
+    const hole: HoleState = {
+      id: "hole-test",
+      x: 500,
+      y: 500,
+      radius: 35,
+    };
+    // Ball flying high above hole at z=50, moving horizontally
+    const ball = createBall("b1", "shooter", 0, 480, 500);
+    ball.resting = false;
+    ball.z = 50;
+    ball.vz = 0;
+    ball.vx = 100;
+    ball.vy = 0;
+
+    let scored = false;
+
+    // Advance 0.1s: ball moves to x=490, z still high (~48)
+    stepBall(ball, 0.1, undefined, undefined, undefined, [hole], () => {
+      scored = true;
+    });
+
+    assert.equal(scored, false);
+    assert.equal(ball.resting, false);
+    assert.ok(ball.z > 0);
   });
 });

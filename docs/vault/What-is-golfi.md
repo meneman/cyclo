@@ -1,6 +1,6 @@
-# What is cyclo
+# What is golfi
 
-**cyclo** is a top-down multiplayer prototype: players move around a
+**golfi** is a top-down multiplayer prototype: players move around a
 shared world, each seeing the others move in near-real time.
 
 ## Why it exists

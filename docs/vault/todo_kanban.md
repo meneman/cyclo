@@ -34,7 +34,7 @@ kanban-plugin: board
             - Rename collection `this.entities` to `this.playerOverlays`.
             - Rename `placeLabel` to `updatePlayerOverlay`.
             - Rename helper `spawnEntity` to `spawnPlayerOverlay`.
-        - Update doc references in `README.md` and `.agents/skills/cyclo-manager/SKILL.md`.
+        - Update doc references in `README.md` and `.agents/skills/golfi-manager/SKILL.md`.
         - Verify with `bun test` and typecheck via `tsc`.
 - [ ] Decouple DOM canvas stacking from `WorldScene.ts` into declarative CSS
     - Scope: Remove leaky DOM mutation from `WorldScene.ts` where it queries `#pixi-container canvas` and imperatively sets inline styles (`position`, `zIndex`) and cleans them up on destroy.
@@ -50,20 +50,51 @@ kanban-plugin: board
             - In `destroy()`: Simply remove canvas from container and dispose renderer; remove the Pixi canvas style-reset hack.
         - Verify with `bun test` and manual browser check.
 - [ ] Audio effects with @pixi/sound
-	- Scope: Trigger sound effects for key actions using existing `@pixi/sound` dependency.
-	- Sounds: Swing whoosh (on downswing release), solid ball impact (on strike), turf bounce (on ground contact), cup sink rattle (on hole-in).
-	- Audio toggle: Mute/unmute button in Pixi overlay; respect browser autoplay policies.
+	- Scope: Trigger sound effects for key actions using `@pixi/sound` on the client side only.
+	- Architecture Constraint: Physics and simulation live in `shared/`, which runs on the server. You MUST NOT import `@pixi/sound` or any UI library into `shared/`.
+	- Event Detection: The client (e.g., `WorldScene` or `GameScreen`) must detect sound events by observing state changes (diffing current vs previous state):
+		- Swing whoosh: Trigger when a player's `swingSeq` increments.
+		- Ball impact: Trigger when `ball.lastHitBy` updates or when velocity spikes from 0.
+		- Turf bounce: Trigger in the client loop when detecting a ground impact (Z velocity sign change and `z <= radius`), scaling volume by impact speed.
+		- Cup sink rattle: Trigger when `ball.inHole` transitions to true.
+	- Asset Loading: Load audio assets (`.mp3` or `.ogg`) in the `prepare()` phase of the screen.
+	- UI: Add a mute/unmute button in the Pixi overlay; respect browser autoplay policies.
 
 
 ## progress
-
-
-
 ## waiting
 
 
 
 ## done
+
+- [x] Big KILL monitor banner and FRAGS / Holes side stats HUD
+	- Scope: When killing someone, show big "KILL" on the monitor; display stats on the side for FRAGS and Holes.
+	- Kill Feedback: Prominent animated "KILL" banner centered on the monitor when the local player's shot knocks down an opponent or bot.
+	- Side HUD: Side stats display with "FRAGS: <count>" and "Holes: <count>" updating authoritatively.
+	- Simulation & Netcode: Server tracks `frags` and `holes` per player; detects ball-player eliminations and hole-ins; broadcasts `Kill` and `HoleScored` events and announces them in chat.
+	- Erledigt 2026-10-09: Großes animiertes "KILL"-Banner (Slam-Effekt & Fade-Out) auf dem Monitor bei Kills implementiert. Statistikanzeige auf der rechten Seite mit "FRAGS:" und "Holes:". Server-authoritatives Tracking von Frags und eingelochten Bällen samt Chat-Benachrichtigungen und Ball-Reset. 86/86 Tests grün (`bun test`), ESLint, TypeScript und Vite Production Build fehlerfrei. Checkliste in `docs/local/MANUAL_TESTS.md` hinterlegt.
+- [x] Locked 16:9 viewbox across PixiJS & Three.js (no map reveal on browser zoom)
+	- Scope: Lock the camera viewbox so browser zoom and window resizing cannot reveal more of the golf map or alter the visible world extent.
+	- Viewbox: Fixed 16:9 logical resolution (`VIEWBOX_WIDTH = 1920`, `VIEWBOX_HEIGHT = 1080`) shared by Three.js orthographic camera frustum and PixiJS UI overlay.
+	- CSS Stacking: Declarative `#viewbox` container inside `#app` with `aspect-ratio: 16 / 9`, centered letterboxing/pillarboxing with black bars, containing stacked `#three-container` (z-index 0) and `#pixi-container` (z-index 1).
+	- Controls & Input: `InputController` converts mouse pointer coordinates from `#viewbox.getBoundingClientRect()` into logical viewbox coordinates, keeping swing aiming 100% accurate at any browser zoom level or aspect ratio.
+	- Resolution: WebGL renderers update `pixelRatio` dynamically on resize/zoom to maintain sharp text and models on HiDPI/Retina screens without expanding frustum bounds.
+	- Erledigt 2026-10-09: Fester 16:9 Viewport (1920x1080) für Three.js und PixiJS implementiert. CSS-Stacking in `#viewbox` mit Zentrierung in `#app`. Browser-Zoom skaliert die Anzeige via CSS ohne Map-Fläche freizulegen. Maus-Aiming via BoundingClientRect auf Viewbox-Koordinaten normiert. 76/76 Tests grün (`bun test`), ESLint und Vite Production Build fehlerfrei. Checkliste in `docs/local/MANUAL_TESTS.md` hinterlegt.
+- [x] Arcade ball physics: faster, harder, flatter trajectory
+	- Scope: Tune ball physics in `shared/constants.ts`, `shared/terrain.ts`, and `shared/ballPhysics.ts` to be fast, hard, and arcade-like.
+	- Trajectory: Lower launch angle (`BALL_LAUNCH_ANGLE` from 45° to 22.5°) and higher gravity (`BALL_GRAVITY` to 220) for a laser-flat, fast flight arc (apex height drops from ~75u to ~36u, flight speed doubles to >300u/s).
+	- Elasticity & Hardness: Increase vertical bounce restitution (`BALL_RESTITUTION` to 0.55), horizontal bounce friction (`BALL_BOUNCE_FRICTION` to 0.75), wall rebound (`BALL_WALL_RESTITUTION` to 0.75), and player impact reflection (`BALL_PLAYER_RESTITUTION` to 0.75).
+	- Roll & Max carry: `BALL_ROLL_DECEL` to 95u/s², `BALL_MAX_CARRY` to 350u.
+	- Visuals: Update `GolfBall.ts` height scaling & shadow fade to match the lower 36u apex.
+	- Erledigt 2026-10-09: Arcade-Physik vollständig implementiert. 73/73 Tests grün (`bun test`), ESLint, Server tsc und Vite Production Build fehlerfrei. Manuelle Checkliste in `docs/local/MANUAL_TESTS.md` aktualisiert.
+- [x] Spawn random golf players that walk around
+	- Scope: Server-authoritative random golf bots (NPCs) that wander across the golf course (Clubhouse, fairways, greens), cycle naturally between walking and idle pausing, and interact physically with balls (blood-stain knockdown & respawn).
+	- Implementation:
+		- `server/src/bot.ts`: Bot player model (`BotPlayer`), AI steering loop (`stepBot`), waypoint target selection within course patrol radii, idle pauses, and default spawn configurations (`DEFAULT_BOT_SPAWNS`).
+		- `server/src/world.ts`: Manage bot lifecycle alongside human players, include bots in simulation tick, hit detection (`stepBall` collision with all players), snapshots (`Welcome` / `State`), and support `/spawn [count]` and `/clearbots` chat commands.
+		- Verification: Unit tests in `server/src/bot.test.ts`, `bun test` (73/73 tests pass), `npm run lint`, and `npm run build` clean.
+	- Erledigt 2026-10-09: 8 Standard-Golfer auf dem Kurs verteilt (Clubhouse, Hole 1, Hole 2, Hole 3, Hole 4). Natürliche Geh- und Idle-Pausen-Zyklen via `stepPlayer`, 3D-Walk- und Idle-Animationen, Namensschilder und Edge-Indikatoren. Vollständige Kollisions- und Respawn-Integration mit Golfbällen. Chat-Befehle `/spawn [count]` und `/clearbots` hinzugefügt. Manuelle Testcheckliste in `docs/local/MANUAL_TESTS.md` aktualisiert.
 
 - [x] Viewport dimension consistency in `GameScreen.ts` & edge indicators
     - Scope: Fix desynchronization between Pixi's logical resolution (`app.renderer.width`/`height`) and window dimensions (`window.innerWidth`/`innerHeight`) in `GameScreen.ts`.

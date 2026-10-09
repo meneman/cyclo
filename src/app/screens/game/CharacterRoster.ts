@@ -98,27 +98,27 @@ export async function loadCharacterTemplates(): Promise<
   (CharacterTemplate | null)[]
 > {
   console.info(
-    `[cyclo:roster] loading ${CHARACTER_ROSTER.length} templates: ${CHARACTER_ROSTER.map((e) => `${e.id} (${e.url})`).join(", ")}`,
+    `[golfi:roster] loading ${CHARACTER_ROSTER.length} templates: ${CHARACTER_ROSTER.map((e) => `${e.id} (${e.url})`).join(", ")}`,
   );
   const loader = new GLTFLoader();
   return Promise.all(
     CHARACTER_ROSTER.map(async (entry): Promise<CharacterTemplate | null> => {
       try {
-        console.debug(`[cyclo:roster] fetching ${entry.id} from ${entry.url}`);
+        console.debug(`[golfi:roster] fetching ${entry.id} from ${entry.url}`);
         const gltf = await loader.loadAsync(entry.url);
         tuneCharacterMaterials(gltf.scene, entry.id);
         console.info(
-          `[cyclo:roster] loaded ${entry.id}: ${gltf.scene.children.length} root children, ${gltf.animations.length} clips [${gltf.animations.map((c) => c.name).join(", ")}]`,
+          `[golfi:roster] loaded ${entry.id}: ${gltf.scene.children.length} root children, ${gltf.animations.length} clips [${gltf.animations.map((c) => c.name).join(", ")}]`,
         );
         if (gltf.animations.length === 0) {
           console.warn(
-            `[cyclo:roster] ${entry.id} has NO animations — players using it will T-pose/freeze`,
+            `[golfi:roster] ${entry.id} has NO animations — players using it will T-pose/freeze`,
           );
         }
         return { ...entry, scene: gltf.scene, clips: gltf.animations };
       } catch (error) {
         console.error(
-          `[cyclo:roster] character failed to load: ${entry.id} (${entry.url}) — those players fall back to dots`,
+          `[golfi:roster] character failed to load: ${entry.id} (${entry.url}) — those players fall back to dots`,
           error,
         );
         return null;

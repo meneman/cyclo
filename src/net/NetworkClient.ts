@@ -21,13 +21,13 @@ export class NetworkClient {
   constructor(private readonly url: string) {}
 
   public connect(): void {
-    console.info(`[cyclo:net] connect ${this.url}`);
+    console.info(`[golfi:net] connect ${this.url}`);
     this.shouldReconnect = true;
     this.open();
   }
 
   public disconnect(): void {
-    console.info("[cyclo:net] disconnect");
+    console.info("[golfi:net] disconnect");
     this.shouldReconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -41,7 +41,7 @@ export class NetworkClient {
     if (this.socket?.readyState !== WebSocket.OPEN) {
       if (message.type !== "input") {
         console.debug(
-          `[cyclo:net] drop ${message.type} (socket state ${this.socket?.readyState ?? "none"})`,
+          `[golfi:net] drop ${message.type} (socket state ${this.socket?.readyState ?? "none"})`,
         );
       }
       return;
@@ -65,30 +65,30 @@ export class NetworkClient {
   }
 
   private open(): void {
-    console.info(`[cyclo:net] opening ${this.url}`);
+    console.info(`[golfi:net] opening ${this.url}`);
     const socket = new WebSocket(this.url);
     this.socket = socket;
 
     socket.addEventListener("open", () => {
-      console.info("[cyclo:net] open");
+      console.info("[golfi:net] open");
       for (const handler of this.connectionHandlers) handler(true);
     });
 
     socket.addEventListener("message", (event: MessageEvent<unknown>) => {
       const message = parseServerMessage(event.data);
       if (!message) {
-        console.warn("[cyclo:net] dropped unparseable server message");
+        console.warn("[golfi:net] dropped unparseable server message");
         return;
       }
       if (message.type !== "state") {
-        console.debug(`[cyclo:net] recv ${message.type}`);
+        console.debug(`[golfi:net] recv ${message.type}`);
       }
       for (const handler of this.messageHandlers) handler(message);
     });
 
     socket.addEventListener("close", (event) => {
       console.warn(
-        `[cyclo:net] close code=${event.code} reason=${event.reason || "-"} reconnect=${this.shouldReconnect}`,
+        `[golfi:net] close code=${event.code} reason=${event.reason || "-"} reconnect=${this.shouldReconnect}`,
       );
       for (const handler of this.connectionHandlers) handler(false);
       if (!this.shouldReconnect) return;
@@ -96,7 +96,7 @@ export class NetworkClient {
     });
 
     socket.addEventListener("error", () => {
-      console.warn("[cyclo:net] socket error");
+      console.warn("[golfi:net] socket error");
       socket.close();
     });
   }

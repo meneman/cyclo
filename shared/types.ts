@@ -57,6 +57,10 @@ export interface PlayerState {
   impactDue?: boolean;
   /** Seconds remaining in knockdown/despawn state after being hit by a ball */
   knockdownTimer?: number;
+  /** Total frags (kills) scored by this player */
+  frags?: number;
+  /** Total golf holes completed by this player */
+  holes?: number;
 }
 
 export type PlayerSnapshot = PlayerState;

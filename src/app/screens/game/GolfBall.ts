@@ -149,13 +149,13 @@ export function updateGolfBallVisual(group: THREE.Group, z: number): void {
 
   const height = Math.max(0, z);
   ball.position.z = GOLF_BALL_RADIUS + height;
-  const ballScale = 1.0 + 1.5 * Math.min(1, height / 75);
+  const ballScale = 1.0 + 1.2 * Math.min(1, height / 36);
   ball.scale.setScalar(ballScale);
 
-  const heightFade = Math.max(0, 1 - height / 50);
+  const heightFade = Math.max(0, 1 - height / 36);
   shadow.position.set(
-    SHADOW_OFFSET.x * (1 + height * 0.4),
-    SHADOW_OFFSET.y * (1 + height * 0.4),
+    SHADOW_OFFSET.x * (1 + height * 0.7),
+    SHADOW_OFFSET.y * (1 + height * 0.7),
     0.02,
   );
   shadow.scale.setScalar(Math.max(0.15, heightFade));

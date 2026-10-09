@@ -23,6 +23,8 @@ import type {
   PlayerState,
   HoleState,
 } from "../../shared/types";
+import type { BotPlayer, BotSpawnOptions } from "./bot";
+import { createBotPlayer, DEFAULT_BOT_SPAWNS, stepBot } from "./bot";
 
 export interface SocketData {
   playerId: string;
@@ -60,6 +62,7 @@ interface Connection {
  */
 export class World {
   private readonly connections = new Map<string, Connection>();
+  private readonly bots = new Map<string, BotPlayer>();
   private readonly balls = new Map<string, BallState>();
   private readonly holes = new Map<string, HoleState>();
   private nextColor = 0;
@@ -76,6 +79,68 @@ export class World {
         radius: 30 + Math.random() * 20,
       });
     }
+
+    this.initDefaultBots();
+  }
+
+  private initDefaultBots(): void {
+    for (const config of DEFAULT_BOT_SPAWNS) {
+      this.spawnBot(config);
+    }
+  }
+
+  public spawnBot(options: BotSpawnOptions = {}): BotPlayer {
+    const color = PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length];
+    const bot = createBotPlayer(options, color);
+    this.bots.set(bot.state.id, bot);
+
+    const ballPos = hitPoint(bot.state);
+    const ball = createBall(
+      `ball-${bot.state.id}`,
+      bot.state.id,
+      bot.state.color,
+      ballPos.x,
+      ballPos.y,
+    );
+    this.balls.set(ball.id, ball);
+
+    console.log(
+      `[golfi:server] +bot ${bot.state.id} "${bot.state.name}" at (${bot.state.x.toFixed(0)}, ${bot.state.y.toFixed(0)}) bots=${this.bots.size}`,
+    );
+
+    this.broadcast({
+      type: ServerMessageType.PlayerJoined,
+      player: bot.state,
+    });
+
+    return bot;
+  }
+
+  public spawnRandomBots(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const margin = 300;
+      const x = margin + Math.random() * (WORLD_WIDTH - margin * 2);
+      const y = margin + Math.random() * (WORLD_HEIGHT - margin * 2);
+      this.spawnBot({
+        x,
+        y,
+        patrolRadius: 200 + Math.random() * 300,
+      });
+    }
+  }
+
+  public clearBots(): number {
+    const count = this.bots.size;
+    for (const bot of this.bots.values()) {
+      this.balls.delete(`ball-${bot.state.id}`);
+      this.broadcast({
+        type: ServerMessageType.PlayerLeft,
+        id: bot.state.id,
+      });
+    }
+    this.bots.clear();
+    console.log(`[golfi:server] cleared all bots (count=${count})`);
+    return count;
   }
 
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
@@ -87,6 +152,8 @@ export class World {
       color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
       facingX: 0,
       facingY: 1,
+      frags: 0,
+      holes: 0,
     };
 
     const ballPos = hitPoint(state);
@@ -109,7 +176,7 @@ export class World {
       announcedName: false,
     });
     console.log(
-      `[cyclo:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size} balls=${this.balls.size}`,
+      `[golfi:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size} balls=${this.balls.size}`,
     );
 
     this.sendTo(ws, {
@@ -128,13 +195,13 @@ export class World {
   public removePlayer(id: string): void {
     const connection = this.connections.get(id);
     if (!connection) {
-      console.log(`[cyclo:server] -player ${id} (unknown)`);
+      console.log(`[golfi:server] -player ${id} (unknown)`);
       return;
     }
     this.connections.delete(id);
     this.balls.delete(`ball-${id}`);
     console.log(
-      `[cyclo:server] -player ${id} "${connection.state.name}" players=${this.connections.size} balls=${this.balls.size}`,
+      `[golfi:server] -player ${id} "${connection.state.name}" players=${this.connections.size} balls=${this.balls.size}`,
     );
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
     if (connection.announcedName) {
@@ -153,7 +220,7 @@ export class World {
           connection.input = message.input;
         } else {
           console.debug(
-            `[cyclo:server] stale input from ${id} seq=${message.seq} last=${connection.lastSeq}`,
+            `[golfi:server] stale input from ${id} seq=${message.seq} last=${connection.lastSeq}`,
           );
         }
         break;
@@ -166,7 +233,7 @@ export class World {
       case ClientMessageType.Join: {
         const name = message.name.trim().slice(0, 24);
         console.log(
-          `[cyclo:server] join ${id} as "${name || connection.state.name}"`,
+          `[golfi:server] join ${id} as "${name || connection.state.name}"`,
         );
         if (name) connection.state.name = name;
         if (!connection.announcedName) {
@@ -178,6 +245,22 @@ export class World {
       case ClientMessageType.Chat: {
         const text = message.text.trim().slice(0, CHAT_MAX_LENGTH);
         if (!text) break;
+        if (text.startsWith("/spawn") || text.startsWith("/bot")) {
+          const parts = text.split(/\s+/);
+          const count = Math.min(20, Math.max(1, parseInt(parts[1], 10) || 1));
+          this.spawnRandomBots(count);
+          this.announce(
+            `${connection.state.name} spawned ${count} random golf player${count > 1 ? "s" : ""}!`,
+          );
+          break;
+        }
+        if (text === "/clearbots") {
+          const removed = this.clearBots();
+          this.announce(
+            `${connection.state.name} cleared ${removed} bot${removed === 1 ? "" : "s"}.`,
+          );
+          break;
+        }
         this.broadcast({
           type: ServerMessageType.Chat,
           id,
@@ -226,17 +309,47 @@ export class World {
       }
     }
 
-    const playerStates = Array.from(this.connections.values(), (c) => c.state);
+    for (const bot of this.bots.values()) {
+      stepBot(bot, dtSeconds, WORLD_WIDTH, WORLD_HEIGHT);
+    }
+
+    const playerStates = [
+      ...Array.from(this.connections.values(), (c) => c.state),
+      ...Array.from(this.bots.values(), (b) => b.state),
+    ];
     for (const ball of this.balls.values()) {
       if (!ball.resting) {
-        stepBall(ball, dtSeconds, COURSE_ZONES, playerStates);
+        stepBall(
+          ball,
+          dtSeconds,
+          COURSE_ZONES,
+          playerStates,
+          (b, victim) => {
+            this.handlePlayerKill(b, victim);
+          },
+          this.holes.values(),
+          (b, hole) => {
+            this.handleHoleScored(b, hole);
+          },
+        );
+      }
+
+      // Also capture resting balls that contact a hole
+      if (ball.resting) {
+        for (const hole of this.holes.values()) {
+          const dist = Math.hypot(ball.x - hole.x, ball.y - hole.y);
+          if (dist <= hole.radius) {
+            this.handleHoleScored(ball, hole);
+            break;
+          }
+        }
       }
     }
 
     if (this.ticks === 1 || this.ticks % (TICK_RATE_HZ * 10) === 0) {
       const first = this.connections.values().next().value;
       console.debug(
-        `[cyclo:server] tick ${this.ticks}: ${this.connections.size} players, ${this.balls.size} balls` +
+        `[golfi:server] tick ${this.ticks}: ${this.connections.size} players, ${this.bots.size} bots, ${this.balls.size} balls` +
           (first
             ? ` e.g. "${first.state.name}" at (${first.state.x.toFixed(0)}, ${first.state.y.toFixed(0)})`
             : ""),
@@ -253,7 +366,14 @@ export class World {
   }
 
   private snapshot(): PlayerState[] {
-    return Array.from(this.connections.values(), (c) => ({ ...c.state }));
+    const list: PlayerState[] = [];
+    for (const c of this.connections.values()) {
+      list.push({ ...c.state });
+    }
+    for (const b of this.bots.values()) {
+      list.push({ ...b.state });
+    }
+    return list;
   }
 
   private ballSnapshot(): BallState[] {
@@ -279,6 +399,67 @@ export class World {
       name: SYSTEM_SENDER_NAME,
       text,
     });
+  }
+
+  private getPlayerState(id: string): PlayerState | undefined {
+    return this.connections.get(id)?.state ?? this.bots.get(id)?.state;
+  }
+
+  private handlePlayerKill(ball: BallState, victim: PlayerState): void {
+    const killerId = ball.lastHitBy;
+    if (!killerId) return;
+    const killer = this.getPlayerState(killerId);
+    if (!killer) return;
+
+    killer.frags = (killer.frags ?? 0) + 1;
+    console.log(
+      `[golfi:server] kill! "${killer.name}" eliminated "${victim.name}" (frags=${killer.frags})`,
+    );
+
+    this.broadcast({
+      type: ServerMessageType.Kill,
+      killerId: killer.id,
+      killerName: killer.name,
+      victimId: victim.id,
+      victimName: victim.name,
+    });
+    this.announce(`${killer.name} killed ${victim.name}!`);
+  }
+
+  private handleHoleScored(ball: BallState, hole: HoleState): void {
+    const scorerId = ball.lastHitBy ?? ball.ownerId;
+    const scorer = this.getPlayerState(scorerId);
+    if (!scorer) return;
+
+    scorer.holes = (scorer.holes ?? 0) + 1;
+    console.log(
+      `[golfi:server] hole scored! "${scorer.name}" in ${hole.id} (holes=${scorer.holes})`,
+    );
+
+    this.broadcast({
+      type: ServerMessageType.HoleScored,
+      playerId: scorer.id,
+      playerName: scorer.name,
+      holeId: hole.id,
+    });
+    this.announce(`${scorer.name} sunk a hole! (${scorer.holes} total)`);
+
+    // Reset ball to the player's hit point
+    const resetPos = hitPoint(scorer);
+    ball.x = resetPos.x;
+    ball.y = resetPos.y;
+    ball.z = 0;
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.vz = 0;
+    ball.resting = true;
+    ball.spin = 0;
+    ball.hitSeq += 1;
+    ball.lastHitBy = undefined;
+
+    // Relocate the scored hole to a fresh random position on the course
+    hole.x = 200 + Math.random() * (WORLD_WIDTH - 400);
+    hole.y = 200 + Math.random() * (WORLD_HEIGHT - 400);
   }
 
   private broadcast(message: ServerMessage, excludeId?: string): void {

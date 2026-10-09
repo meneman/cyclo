@@ -1,3 +1,4 @@
+import { VIEWBOX_HEIGHT, VIEWBOX_WIDTH } from "../../shared/constants";
 import type { InputState } from "../../shared/types";
 
 type MovementFlag = "up" | "down" | "left" | "right" | "charging";
@@ -76,7 +77,7 @@ export class InputController {
     if (!key) return;
     if (!this.loggedFirstKey) {
       this.loggedFirstKey = true;
-      console.info(`[cyclo:input] first movement key: ${event.code} -> ${key}`);
+      console.info(`[golfi:input] first movement key: ${event.code} -> ${key}`);
     }
     if (!this.state[key]) {
       this.state[key] = true;
@@ -97,6 +98,21 @@ export class InputController {
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
+    const viewbox =
+      typeof document !== "undefined"
+        ? (document.getElementById("viewbox") ??
+          document.getElementById("pixi-container"))
+        : null;
+    if (viewbox) {
+      const rect = viewbox.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.pointerX =
+          ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+        this.pointerY =
+          ((event.clientY - rect.top) / rect.height) * VIEWBOX_HEIGHT;
+        return;
+      }
+    }
     this.pointerX = event.clientX;
     this.pointerY = event.clientY;
   };

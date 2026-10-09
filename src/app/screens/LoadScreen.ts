@@ -32,7 +32,7 @@ export class LoadScreen extends Container {
     this.addChild(this.progressBar);
 
     this.titleText = new Text({
-      text: "cyclo",
+      text: "golfi",
       style: {
         fontFamily: "monospace",
         fontSize: 36,

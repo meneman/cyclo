@@ -20,6 +20,8 @@ export const ServerMessageType = {
   PlayerLeft: "playerLeft",
   Pong: "pong",
   Chat: "chat",
+  Kill: "kill",
+  HoleScored: "holeScored",
 } as const;
 export type ServerMessageType =
   (typeof ServerMessageType)[keyof typeof ServerMessageType];
@@ -133,4 +135,17 @@ export type ServerMessage =
       id: string;
       name: string;
       text: string;
+    }
+  | {
+      type: typeof ServerMessageType.Kill;
+      killerId: string;
+      killerName: string;
+      victimId: string;
+      victimName: string;
+    }
+  | {
+      type: typeof ServerMessageType.HoleScored;
+      playerId: string;
+      playerName: string;
+      holeId: string;
     };

@@ -21,7 +21,7 @@ import {
 } from "./constants";
 import { COURSE_ZONES, getTerrainPropertiesAt } from "./terrain";
 import type { TerrainZone } from "./terrain";
-import type { BallState, PlayerState, Vector2 } from "./types";
+import type { BallState, HoleState, PlayerState, Vector2 } from "./types";
 
 /**
  * Golf ball physics and swing→ball interaction. Every function here is pure
@@ -236,11 +236,14 @@ export function stepBall(
   dtSeconds: number,
   zones: TerrainZone[] = COURSE_ZONES,
   players?: Iterable<PlayerState>,
+  onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
+  holes?: Iterable<HoleState>,
+  onHoleScored?: (ball: BallState, hole: HoleState) => void,
 ): BallState {
   let remaining = dtSeconds;
   while (remaining > 1e-9 && !ball.resting) {
     const h = Math.min(BALL_SUBSTEP_SECONDS, remaining);
-    substep(ball, h, zones, players);
+    substep(ball, h, zones, players, onPlayerHit, holes, onHoleScored);
     remaining -= h;
   }
   return ball;
@@ -259,6 +262,9 @@ function substep(
   h: number,
   zones: TerrainZone[] = COURSE_ZONES,
   players?: Iterable<PlayerState>,
+  onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
+  holes?: Iterable<HoleState>,
+  onHoleScored?: (ball: BallState, hole: HoleState) => void,
 ): void {
   // 1. Accumulate Forces (as acceleration)
   let ax = 0;
@@ -322,21 +328,40 @@ function substep(
   ball.z += ball.vz * h;
 
   // 5. Constraints / Collisions
-  if (ball.z <= 0 && isAirborne) {
-    ball.z = 0;
-    if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
-      const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
-      ball.vz = -ball.vz * terrain.restitution;
-      ball.vx *= terrain.bounceFriction;
-      ball.vy *= terrain.bounceFriction;
-    } else {
-      ball.vz = 0;
+  if (ball.z <= 0) {
+    if (isAirborne) {
+      ball.z = 0;
+      if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
+        const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
+        ball.vz = -ball.vz * terrain.restitution;
+        ball.vx *= terrain.bounceFriction;
+        ball.vy *= terrain.bounceFriction;
+      } else {
+        ball.vz = 0;
+      }
+    }
+
+    if (holes) {
+      for (const hole of holes) {
+        const dist = Math.hypot(ball.x - hole.x, ball.y - hole.y);
+        if (dist <= hole.radius) {
+          ball.vx = 0;
+          ball.vy = 0;
+          ball.vz = 0;
+          ball.z = 0;
+          ball.resting = true;
+          onHoleScored?.(ball, hole);
+          return;
+        }
+      }
     }
   }
 
   if (players) {
     for (const player of players) {
-      resolveBallPlayerCollision(ball, player);
+      if (resolveBallPlayerCollision(ball, player)) {
+        onPlayerHit?.(ball, player);
+      }
     }
   }
 

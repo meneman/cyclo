@@ -6,6 +6,9 @@ import type {
   ResizePluginOptions,
 } from "pixi.js";
 
+import { VIEWBOX_HEIGHT, VIEWBOX_WIDTH } from "../../../shared/constants";
+import { getResolution } from "../utils/getResolution";
+
 import { resize } from "./resize";
 
 // Custom utility type:
@@ -119,16 +122,30 @@ export class CreationResizePlugin {
         canvasHeight = clientHeight;
       }
 
+      const res = getResolution();
+      if (app.renderer.resolution !== res) {
+        app.renderer.resolution = res;
+      }
+
+      const minWidth = app.resizeOptions.minWidth ?? VIEWBOX_WIDTH;
+      const minHeight = app.resizeOptions.minHeight ?? VIEWBOX_HEIGHT;
+      const letterbox = app.resizeOptions.letterbox ?? true;
+
       const { width, height } = resize(
         canvasWidth,
         canvasHeight,
-        app.resizeOptions.minWidth,
-        app.resizeOptions.minHeight,
-        app.resizeOptions.letterbox,
+        minWidth,
+        minHeight,
+        letterbox,
       );
 
-      app.renderer.canvas.style.width = `${canvasWidth}px`;
-      app.renderer.canvas.style.height = `${canvasHeight}px`;
+      if (letterbox) {
+        app.renderer.canvas.style.width = "100%";
+        app.renderer.canvas.style.height = "100%";
+      } else {
+        app.renderer.canvas.style.width = `${canvasWidth}px`;
+        app.renderer.canvas.style.height = `${canvasHeight}px`;
+      }
       window.scrollTo(0, 0);
 
       app.renderer.resize(width, height);
@@ -143,8 +160,8 @@ export class CreationResizePlugin {
     this._resizeId = null;
     this._resizeTo = null;
     app.resizeOptions = {
-      minWidth: 768,
-      minHeight: 1024,
+      minWidth: VIEWBOX_WIDTH,
+      minHeight: VIEWBOX_HEIGHT,
       letterbox: true,
       ...options.resizeOptions,
     };

@@ -1,3 +1,4 @@
+import { VIEWBOX_HEIGHT, VIEWBOX_WIDTH } from "../shared/constants";
 import { setEngine } from "./app/getEngine";
 import { LoadScreen } from "./app/screens/LoadScreen";
 import { StartScreen } from "./app/screens/start/StartScreen";
@@ -21,7 +22,13 @@ setEngine(engine);
     // Transparent Pixi canvas: the Three.js world scene renders on a canvas
     // stacked behind it, while HUD/chat/labels stay in the Pixi overlay.
     backgroundAlpha: 0,
-    resizeOptions: { minWidth: 1024, minHeight: 600, letterbox: false },
+    width: VIEWBOX_WIDTH,
+    height: VIEWBOX_HEIGHT,
+    resizeOptions: {
+      minWidth: VIEWBOX_WIDTH,
+      minHeight: VIEWBOX_HEIGHT,
+      letterbox: true,
+    },
   });
 
   // Initialize the user settings

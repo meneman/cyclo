@@ -1,3 +1,4 @@
+import { sound } from "@pixi/sound";
 import type { Ticker } from "pixi.js";
 import { Container, Text } from "pixi.js";
 
@@ -5,6 +6,8 @@ import { findHittableBall } from "../../../../shared/ballPhysics";
 import {
   INPUT_SEND_INTERVAL_MS,
   INTERPOLATION_DELAY_MS,
+  VIEWBOX_HEIGHT,
+  VIEWBOX_WIDTH,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
@@ -25,7 +28,9 @@ import { engine } from "../../getEngine";
 import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
+import { KillBanner } from "./KillBanner";
 import { PlayerEntity } from "./PlayerEntity";
+import { StatsPanel } from "./StatsPanel";
 import { WorldScene } from "./WorldScene";
 
 /** Fraction of the local/server position gap corrected per state update */
@@ -62,6 +67,8 @@ export class GameScreen extends Container {
   private readonly hud: Text;
   private readonly debugText: Text;
   private readonly chatBox = new ChatBox();
+  private readonly statsPanel = new StatsPanel();
+  private readonly killBanner = new KillBanner();
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
@@ -84,8 +91,11 @@ export class GameScreen extends Container {
   private lastStateAt = 0;
   private warnedNoLocalState = false;
 
+  private readonly previousBallHitSeqs = new Map<string, number>();
+
   constructor() {
     super();
+    this.sortableChildren = true;
 
     // Anchored top-right (right-aligned) since the chat panel now occupies the top-left
     this.hud = new Text({
@@ -93,6 +103,7 @@ export class GameScreen extends Container {
       style: { fontFamily: "monospace", fontSize: 14, fill: HUD_FILL },
     });
     this.hud.anchor.set(1, 0);
+    this.hud.zIndex = 80;
     this.addChild(this.hud);
 
     this.debugText = new Text({
@@ -101,21 +112,54 @@ export class GameScreen extends Container {
     });
     this.debugText.anchor.set(1, 0);
     this.debugText.visible = false;
+    this.debugText.zIndex = 80;
     this.addChild(this.debugText);
 
+    this.statsPanel.zIndex = 90;
+    this.addChild(this.statsPanel);
+
+    this.chatBox.zIndex = 80;
     this.chatBox.onSend = (text) => {
       this.network.send({ type: ClientMessageType.Chat, text });
     };
     this.addChild(this.chatBox);
+
+    this.killBanner.zIndex = 100;
+    this.addChild(this.killBanner);
   }
 
   /** Called by Navigation right after the screen is added to the stage */
   public prepare(): void {
-    console.info(`[cyclo:game] prepare, ws=${resolveWsUrl()}`);
-    const initialWidth = engine()?.renderer?.width ?? window.innerWidth;
-    const initialHeight = engine()?.renderer?.height ?? window.innerHeight;
+    console.info(`[golfi:game] prepare, ws=${resolveWsUrl()}`);
+
+    // Register audio effects if not already present
+    if (!sound.exists("card-place-3")) {
+      sound.add("card-place-3", {
+        url: "/sounds/casino/Audio/card-place-3.ogg",
+        preload: true,
+      });
+      sound.add("hit-player", {
+        url: "/sounds/casino/Audio/card-place-3.ogg",
+        preload: true,
+      });
+    }
+    if (!sound.exists("card-slide-2")) {
+      sound.add("card-slide-2", {
+        url: "/sounds/casino/Audio/card-slide-2.ogg",
+        preload: true,
+      });
+      sound.add("hit-ball", {
+        url: "/sounds/casino/Audio/card-slide-2.ogg",
+        preload: true,
+      });
+    }
+
+    const initialWidth = engine()?.renderer?.width ?? VIEWBOX_WIDTH;
+    const initialHeight = engine()?.renderer?.height ?? VIEWBOX_HEIGHT;
     this.viewportWidth = initialWidth;
     this.viewportHeight = initialHeight;
+    this.killBanner.reposition(initialWidth, initialHeight);
+    this.statsPanel.reposition(initialWidth, HUD_MARGIN, 36);
     this.worldScene = new WorldScene();
     this.worldScene.setSize(initialWidth, initialHeight);
     this.input.onChange = (newInput) => {
@@ -126,7 +170,7 @@ export class GameScreen extends Container {
     );
     this.unsubscribeConnection = this.network.onConnectionChange(
       (connected) => {
-        console.info(`[cyclo:game] connection ${connected ? "up" : "down"}`);
+        console.info(`[golfi:game] connection ${connected ? "up" : "down"}`);
         this.connected = connected;
         if (connected) {
           this.network.send({
@@ -144,12 +188,12 @@ export class GameScreen extends Container {
     if (!this.worldScene) return;
     this.updateFrames++;
     if (this.updateFrames === 1) {
-      console.info("[cyclo:game] first update tick");
+      console.info("[golfi:game] first update tick");
     }
     if (!this.localState && !this.warnedNoLocalState) {
       this.warnedNoLocalState = true;
       console.warn(
-        "[cyclo:game] no local player yet (waiting for Welcome) — camera parked at world center",
+        "[golfi:game] no local player yet (waiting for Welcome) — camera parked at world center",
       );
     }
     this.input.setEnabled(!this.chatBox.editing);
@@ -267,11 +311,12 @@ export class GameScreen extends Container {
       const x = this.localState?.x.toFixed(0) ?? "-";
       const y = this.localState?.y.toFixed(0) ?? "-";
       console.debug(
-        `[cyclo:game] heartbeat frame=${this.updateFrames} connected=${this.connected} players=${this.playerCount} entities=${this.entities.size} local=(${x},${y})`,
+        `[golfi:game] heartbeat frame=${this.updateFrames} connected=${this.connected} players=${this.playerCount} entities=${this.entities.size} local=(${x},${y})`,
       );
     }
 
     this.hud.text = `${this.connected ? "connected" : "reconnecting…"} · ${this.playerCount} player${this.playerCount === 1 ? "" : "s"}`;
+    this.killBanner.update(dtSeconds);
 
     if (this.debugEnabled) {
       const x = this.localState?.x ?? 0;
@@ -282,18 +327,23 @@ export class GameScreen extends Container {
   }
 
   /** Resize the screen, fired whenever window size changes */
-  public resize(width: number, height: number): void {
+  public resize(
+    width: number = VIEWBOX_WIDTH,
+    height: number = VIEWBOX_HEIGHT,
+  ): void {
     this.viewportWidth = width;
     this.viewportHeight = height;
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
-    this.debugText.position.set(width - HUD_MARGIN, 30);
+    this.statsPanel.reposition(width, HUD_MARGIN, 36);
+    this.debugText.position.set(width - HUD_MARGIN, 108);
+    this.killBanner.reposition(width, height);
     this.worldScene?.setSize(width, height);
   }
 
   /** Fully reset — the screen instance may be pooled and reused */
   public reset(): void {
-    console.info("[cyclo:game] reset");
+    console.info("[golfi:game] reset");
     this.unsubscribeMessage?.();
     this.unsubscribeConnection?.();
     this.network.disconnect();
@@ -316,6 +366,7 @@ export class GameScreen extends Container {
     this.connected = false;
     this.debugEnabled = false;
     this.debugText.visible = false;
+    this.statsPanel.setStats(0, 0);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
@@ -340,11 +391,15 @@ export class GameScreen extends Container {
         // snapshots from the previous session would otherwise linger as
         // ghosts — start from a clean slate on every Welcome.
         console.info(
-          `[cyclo:game] welcome id=${message.id} players=${message.players.length} balls=${message.balls.length} world=${message.world.width}x${message.world.height} tick=${message.tickRateHz}Hz`,
+          `[golfi:game] welcome id=${message.id} players=${message.players.length} balls=${message.balls.length} world=${message.world.width}x${message.world.height} tick=${message.tickRateHz}Hz`,
         );
         this.clearWorldState();
         this.warnedNoLocalState = false;
         this.localId = message.id;
+        this.previousBallHitSeqs.clear();
+        for (const ball of message.balls) {
+          this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
+        }
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncBalls(this.ballPredictor.getBalls());
         this.worldScene?.syncHoles(message.holes);
@@ -355,18 +410,22 @@ export class GameScreen extends Container {
           message.players.find((p) => p.id === this.localId) ?? null;
         if (this.localState) {
           console.info(
-            `[cyclo:game] local spawn at (${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)})`,
+            `[golfi:game] local spawn at (${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)})`,
           );
         } else {
-          console.warn("[cyclo:game] welcome missing local player entry");
+          console.warn("[golfi:game] welcome missing local player entry");
         }
         this.playerCount = message.players.length;
+        this.statsPanel.setStats(
+          this.localState?.frags ?? 0,
+          this.localState?.holes ?? 0,
+        );
         break;
       }
 
       case ServerMessageType.PlayerJoined:
         console.info(
-          `[cyclo:game] player joined ${message.player.id} "${message.player.name}" at (${message.player.x.toFixed(0)}, ${message.player.y.toFixed(0)})`,
+          `[golfi:game] player joined ${message.player.id} "${message.player.name}" at (${message.player.x.toFixed(0)}, ${message.player.y.toFixed(0)})`,
         );
         this.spawnEntity(message.player);
         this.playerCount = this.entities.size;
@@ -374,7 +433,7 @@ export class GameScreen extends Container {
 
       case ServerMessageType.PlayerLeft: {
         const known = this.entities.has(message.id);
-        console.info(`[cyclo:game] player left ${message.id} (known=${known})`);
+        console.info(`[golfi:game] player left ${message.id} (known=${known})`);
         this.entities.get(message.id)?.destroy();
         this.entities.delete(message.id);
         this.worldScene?.remove(message.id);
@@ -386,11 +445,21 @@ export class GameScreen extends Container {
         const now = performance.now();
         if (now - this.lastStateAt > 5000) {
           console.debug(
-            `[cyclo:game] state flowing: ${message.players.length} players, ${message.balls.length} balls`,
+            `[golfi:game] state flowing: ${message.players.length} players, ${message.balls.length} balls`,
           );
         }
         this.lastStateAt = now;
         this.interpolator.push(message.players);
+
+        // Detect ball strikes: trigger sound if any ball's hitSeq incremented into flight/motion
+        for (const ball of message.balls) {
+          const prevSeq = this.previousBallHitSeqs.get(ball.id);
+          if (prevSeq !== undefined && ball.hitSeq > prevSeq && !ball.resting) {
+            this.playSound("card-slide-2");
+          }
+          this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
+        }
+
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncHoles(message.holes);
         this.reconcileLocalPlayer(message.players);
@@ -408,15 +477,52 @@ export class GameScreen extends Container {
         this.chatBox.receive({ name: message.name, text: message.text });
         this.entities.get(message.id)?.showChatBubble(message.text);
         break;
+
+      case ServerMessageType.Kill: {
+        this.playSound("card-place-3");
+        if (message.killerId === this.localId) {
+          this.killBanner.show(message.victimName);
+          if (this.localState) {
+            this.localState.frags = (this.localState.frags ?? 0) + 1;
+            this.statsPanel.setStats(
+              this.localState.frags,
+              this.localState.holes ?? 0,
+            );
+          }
+        }
+        break;
+      }
+
+      case ServerMessageType.HoleScored: {
+        if (message.playerId === this.localId) {
+          if (this.localState) {
+            this.localState.holes = (this.localState.holes ?? 0) + 1;
+            this.statsPanel.setStats(
+              this.localState.frags ?? 0,
+              this.localState.holes,
+            );
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  private playSound(alias: string): void {
+    try {
+      engine()?.audio?.sfx?.play(alias);
+    } catch (err) {
+      console.warn(`[golfi:audio] failed to play sound "${alias}":`, err);
     }
   }
 
   private spawnEntity(snapshot: PlayerState): void {
     if (this.entities.has(snapshot.id)) return;
     console.debug(
-      `[cyclo:game] spawn entity ${snapshot.id} "${snapshot.name}" at (${snapshot.x.toFixed(0)}, ${snapshot.y.toFixed(0)})`,
+      `[golfi:game] spawn entity ${snapshot.id} "${snapshot.name}" at (${snapshot.x.toFixed(0)}, ${snapshot.y.toFixed(0)})`,
     );
     const entity = new PlayerEntity(snapshot);
+    entity.zIndex = 10;
     this.entities.set(snapshot.id, entity);
     this.addChild(entity);
     this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y);
@@ -426,6 +532,7 @@ export class GameScreen extends Container {
   /** Drops all per-session world state (entities, interpolation history,
    *  local prediction) — used on Welcome and on full reset. */
   private clearWorldState(): void {
+    this.previousBallHitSeqs.clear();
     for (const entity of this.entities.values()) entity.destroy();
     this.entities.clear();
     this.interpolator.clear();
@@ -445,8 +552,8 @@ export class GameScreen extends Container {
 
     if (!isLocal) {
       const padding = 20;
-      const w = this.viewportWidth || window.innerWidth;
-      const h = this.viewportHeight || window.innerHeight;
+      const w = this.viewportWidth || VIEWBOX_WIDTH;
+      const h = this.viewportHeight || VIEWBOX_HEIGHT;
 
       const cw = w / 2;
       const ch = h / 2;
@@ -487,6 +594,16 @@ export class GameScreen extends Container {
     if (authoritative.knockdownTimer !== undefined) {
       this.localState.knockdownTimer = authoritative.knockdownTimer;
     }
+    if (authoritative.frags !== undefined) {
+      this.localState.frags = authoritative.frags;
+    }
+    if (authoritative.holes !== undefined) {
+      this.localState.holes = authoritative.holes;
+    }
+    this.statsPanel.setStats(
+      this.localState.frags ?? 0,
+      this.localState.holes ?? 0,
+    );
 
     const dx = authoritative.x - this.localState.x;
     const dy = authoritative.y - this.localState.y;
@@ -494,7 +611,7 @@ export class GameScreen extends Container {
 
     if (distance > RECONCILE_SNAP_DISTANCE) {
       console.warn(
-        `[cyclo:game] reconcile SNAP gap=${distance.toFixed(0)} predicted=(${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)}) auth=(${authoritative.x.toFixed(0)}, ${authoritative.y.toFixed(0)})`,
+        `[golfi:game] reconcile SNAP gap=${distance.toFixed(0)} predicted=(${this.localState.x.toFixed(0)}, ${this.localState.y.toFixed(0)}) auth=(${authoritative.x.toFixed(0)}, ${authoritative.y.toFixed(0)})`,
       );
       this.localState.x = authoritative.x;
       this.localState.y = authoritative.y;
