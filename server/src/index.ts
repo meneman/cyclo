@@ -1,12 +1,10 @@
-import { WORLD_TOPIC } from "../../shared/constants";
 import { parseClientMessage } from "../../shared/protocol";
-
+import { RoomManager } from "./roomManager";
 import type { SocketData } from "./world";
-import { World } from "./world";
 
 const PORT = Number(process.env.PORT ?? 3332);
 
-const world = new World();
+const roomManager = new RoomManager();
 
 const server = Bun.serve<SocketData>({
   port: PORT,
@@ -15,7 +13,10 @@ const server = Bun.serve<SocketData>({
 
     if (url.pathname === "/ws") {
       const playerId = crypto.randomUUID();
-      const upgraded = srv.upgrade(req, { data: { playerId } });
+      const requestedRoom = url.searchParams.get("room") || undefined;
+      const upgraded = srv.upgrade(req, {
+        data: { playerId, requestedRoom },
+      });
       return upgraded
         ? undefined
         : new Response("WebSocket upgrade failed", { status: 400 });
@@ -29,9 +30,13 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
-      console.log(`[golfi:ws] open ${ws.data.playerId}`);
-      ws.subscribe(WORLD_TOPIC);
-      world.addPlayer(ws.data.playerId, ws);
+      const room = roomManager.getOrCreateRoom(ws.data.requestedRoom);
+      ws.data.roomId = room.id;
+      console.log(
+        `[golfi:ws] open ${ws.data.playerId} in room "${room.id}" (topic: ${room.topic})`,
+      );
+      ws.subscribe(room.topic);
+      room.addPlayer(ws.data.playerId, ws);
     },
     message(ws, raw) {
       const message = parseClientMessage(raw);
@@ -41,15 +46,22 @@ const server = Bun.serve<SocketData>({
         );
         return;
       }
-      world.handleMessage(ws.data.playerId, message);
+      const room = roomManager.getRoom(ws.data.roomId ?? "");
+      if (room) {
+        room.handleMessage(ws.data.playerId, message);
+      }
     },
     close(ws) {
-      console.log(`[golfi:ws] close ${ws.data.playerId}`);
-      world.removePlayer(ws.data.playerId);
+      console.log(
+        `[golfi:ws] close ${ws.data.playerId} from room "${ws.data.roomId}"`,
+      );
+      if (ws.data.roomId) {
+        roomManager.removePlayer(ws.data.playerId, ws.data.roomId);
+      }
     },
   },
 });
 
-world.start(server);
+roomManager.setServer(server);
 
 console.log(`golfi server listening on ws://localhost:${server.port}/ws`);

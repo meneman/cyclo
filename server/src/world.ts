@@ -7,22 +7,28 @@ import {
   strikeBall,
 } from "../../shared/ballPhysics";
 import {
+  MATCH_COUNTDOWN_SECONDS,
+  MATCH_TARGET_SCORE,
+  MATCH_TEE_1_SPAWN,
+  MATCH_TEE_2_SPAWN,
   PLAYER_COLORS,
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   WORLD_HEIGHT,
-  WORLD_TOPIC,
   WORLD_WIDTH,
 } from "../../shared/constants";
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
 import { COURSE_ZONES } from "../../shared/terrain";
+import { MatchStatus } from "../../shared/types";
 import type {
   BallState,
   InputState,
   PlayerState,
   HoleState,
+  MatchPlayerInfo,
+  MatchState,
   TrampolineState,
 } from "../../shared/types";
 import type { BotPlayer, BotSpawnOptions } from "./bot";
@@ -30,6 +36,8 @@ import { createBotPlayer, DEFAULT_BOT_SPAWNS, stepBot } from "./bot";
 
 export interface SocketData {
   playerId: string;
+  roomId?: string;
+  requestedRoom?: string;
 }
 
 const CHAT_MAX_LENGTH = 200;
@@ -54,10 +62,12 @@ interface Connection {
 }
 
 /**
- * Owns all connected players and runs the fixed-rate authoritative
- * simulation tick. One instance per server process.
+ * Owns connected players for a room and runs the fixed-rate authoritative
+ * simulation tick. One instance per room.
  */
 export class World {
+  public readonly id: string;
+  public readonly topic: string;
   private readonly connections = new Map<string, Connection>();
   private readonly bots = new Map<string, BotPlayer>();
   private readonly balls = new Map<string, BallState>();
@@ -66,8 +76,14 @@ export class World {
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
+  private matchStatus: MatchStatus = MatchStatus.Waiting;
+  private countdownTimer: number | null = null;
+  private winnerId?: string;
+  private winnerName?: string;
 
-  constructor() {
+  constructor(id: string = "default") {
+    this.id = id;
+    this.topic = `room:${id}`;
     for (let i = 0; i < 30; i++) {
       const id = `hole-${i}`;
       this.holes.set(id, {
@@ -155,6 +171,45 @@ export class World {
     return count;
   }
 
+  public getPlayerCount(): number {
+    return this.connections.size;
+  }
+
+  public getMatchState(): MatchState {
+    const players: MatchPlayerInfo[] = [];
+    for (const c of this.connections.values()) {
+      const frags = c.state.frags ?? 0;
+      const holes = c.state.holes ?? 0;
+      players.push({
+        id: c.state.id,
+        name: c.state.name,
+        color: c.state.color,
+        frags,
+        holes,
+        score: frags + holes,
+      });
+    }
+    return {
+      roomId: this.id,
+      status: this.matchStatus,
+      countdownSeconds:
+        this.countdownTimer !== null
+          ? Math.max(0, Math.ceil(this.countdownTimer))
+          : null,
+      targetScore: MATCH_TARGET_SCORE,
+      winnerId: this.winnerId,
+      winnerName: this.winnerName,
+      players,
+    };
+  }
+
+  public broadcastMatchState(): void {
+    this.broadcast({
+      type: ServerMessageType.MatchState,
+      match: this.getMatchState(),
+    });
+  }
+
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
     const randomColor =
       PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
@@ -196,15 +251,30 @@ export class World {
     this.sendTo(ws, {
       type: ServerMessageType.Welcome,
       id,
+      roomId: this.id,
       tickRateHz: TICK_RATE_HZ,
       world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       players: this.snapshot(),
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
       trampolines: this.trampolineSnapshot(),
+      match: this.getMatchState(),
     });
 
     this.broadcast({ type: ServerMessageType.PlayerJoined, player: state }, id);
+
+    // If 2 players are now in the room and we are waiting, start 10s countdown!
+    if (
+      this.connections.size === 2 &&
+      this.matchStatus === MatchStatus.Waiting
+    ) {
+      this.matchStatus = MatchStatus.Countdown;
+      this.countdownTimer = MATCH_COUNTDOWN_SECONDS;
+      this.announce("2 players joined! Match starting in 10 seconds...");
+      this.broadcastMatchState();
+    } else {
+      this.broadcastMatchState();
+    }
   }
 
   public removePlayer(id: string): void {
@@ -221,6 +291,26 @@ export class World {
     this.broadcast({ type: ServerMessageType.PlayerLeft, id });
     if (connection.announcedName) {
       this.announce(`player left: "${connection.state.name}"`);
+    }
+
+    if (this.matchStatus === MatchStatus.Countdown) {
+      this.matchStatus = MatchStatus.Waiting;
+      this.countdownTimer = null;
+      this.announce("Opponent left. Countdown cancelled.");
+      this.broadcastMatchState();
+    } else if (this.matchStatus === MatchStatus.Playing) {
+      if (this.connections.size === 1) {
+        const remaining = this.connections.values().next().value;
+        if (remaining) {
+          this.matchStatus = MatchStatus.Finished;
+          this.winnerId = remaining.state.id;
+          this.winnerName = remaining.state.name;
+          this.announce(`${remaining.state.name} won by forfeit!`);
+          this.broadcastMatchState();
+        }
+      }
+    } else {
+      this.broadcastMatchState();
     }
   }
 
@@ -250,10 +340,46 @@ export class World {
         console.log(
           `[golfi:server] join ${id} as "${name || connection.state.name}"`,
         );
-        if (name) connection.state.name = name;
+        if (name) {
+          connection.state.name = name;
+          this.broadcastMatchState();
+        }
+        if (
+          message.color !== undefined &&
+          PLAYER_COLORS.includes(message.color)
+        ) {
+          connection.state.color = message.color;
+          const ball = this.balls.get(`ball-${id}`);
+          if (ball) ball.color = message.color;
+        }
         if (!connection.announcedName) {
           connection.announcedName = true;
           this.announce(`new player here: "${connection.state.name}"`);
+        }
+        break;
+      }
+      case ClientMessageType.Rematch: {
+        if (
+          this.matchStatus === MatchStatus.Finished &&
+          this.connections.size === 2
+        ) {
+          this.matchStatus = MatchStatus.Countdown;
+          this.countdownTimer = MATCH_COUNTDOWN_SECONDS;
+          this.winnerId = undefined;
+          this.winnerName = undefined;
+          this.announce("Rematch accepted! Starting in 10 seconds...");
+          this.broadcastMatchState();
+        }
+        break;
+      }
+      case ClientMessageType.SetColor: {
+        if (PLAYER_COLORS.includes(message.color)) {
+          connection.state.color = message.color;
+          const ball = this.balls.get(`ball-${id}`);
+          if (ball) ball.color = message.color;
+          console.log(
+            `[golfi:server] player ${id} color changed to 0x${message.color.toString(16)}`,
+          );
         }
         break;
       }
@@ -304,6 +430,22 @@ export class World {
     this.ticks++;
 
     const dtSeconds = TICK_INTERVAL_MS / 1000;
+
+    if (
+      this.matchStatus === MatchStatus.Countdown &&
+      this.countdownTimer !== null
+    ) {
+      const prevSeconds = Math.ceil(this.countdownTimer);
+      this.countdownTimer -= dtSeconds;
+      const currentSeconds = Math.max(0, Math.ceil(this.countdownTimer));
+      if (currentSeconds !== prevSeconds) {
+        this.broadcastMatchState();
+      }
+      if (this.countdownTimer <= 0) {
+        this.startMatch();
+      }
+    }
+
     for (const connection of this.connections.values()) {
       stepPlayer(
         connection.state,
@@ -390,7 +532,60 @@ export class World {
       holes: this.holeSnapshot(),
       trampolines: this.trampolineSnapshot(),
     };
-    server.publish(WORLD_TOPIC, JSON.stringify(message));
+    server.publish(this.topic, JSON.stringify(message));
+  }
+
+  private startMatch(): void {
+    this.matchStatus = MatchStatus.Playing;
+    this.countdownTimer = null;
+    this.winnerId = undefined;
+    this.winnerName = undefined;
+
+    const conns = Array.from(this.connections.values());
+    if (conns[0]) {
+      conns[0].state.x = MATCH_TEE_1_SPAWN.x;
+      conns[0].state.y = MATCH_TEE_1_SPAWN.y;
+      conns[0].state.facingX = 0;
+      conns[0].state.facingY = 1;
+      conns[0].state.frags = 0;
+      conns[0].state.holes = 0;
+      const b1 = this.balls.get(`ball-${conns[0].state.id}`);
+      if (b1) {
+        const hp = hitPoint(conns[0].state);
+        b1.x = hp.x;
+        b1.y = hp.y;
+        b1.z = 0;
+        b1.vx = 0;
+        b1.vy = 0;
+        b1.vz = 0;
+        b1.resting = true;
+        b1.hitSeq += 1;
+        b1.lastHitBy = undefined;
+      }
+    }
+    if (conns[1]) {
+      conns[1].state.x = MATCH_TEE_2_SPAWN.x;
+      conns[1].state.y = MATCH_TEE_2_SPAWN.y;
+      conns[1].state.facingX = 0;
+      conns[1].state.facingY = 1;
+      conns[1].state.frags = 0;
+      conns[1].state.holes = 0;
+      const b2 = this.balls.get(`ball-${conns[1].state.id}`);
+      if (b2) {
+        const hp = hitPoint(conns[1].state);
+        b2.x = hp.x;
+        b2.y = hp.y;
+        b2.z = 0;
+        b2.vx = 0;
+        b2.vy = 0;
+        b2.vz = 0;
+        b2.resting = true;
+        b2.hitSeq += 1;
+        b2.lastHitBy = undefined;
+      }
+    }
+    this.announce("MATCH START! First to 10 points wins! GO!");
+    this.broadcastMatchState();
   }
 
   private snapshot(): PlayerState[] {
@@ -456,6 +651,19 @@ export class World {
       victimName: victim.name,
     });
     this.announce(`${killer.name} killed ${victim.name}!`);
+
+    if (this.matchStatus === MatchStatus.Playing) {
+      const score = (killer.frags ?? 0) + (killer.holes ?? 0);
+      if (score >= MATCH_TARGET_SCORE) {
+        this.matchStatus = MatchStatus.Finished;
+        this.winnerId = killer.id;
+        this.winnerName = killer.name;
+        this.announce(
+          `MATCH OVER! ${killer.name} reached 10 points and WON THE MATCH!`,
+        );
+      }
+      this.broadcastMatchState();
+    }
   }
 
   private handleHoleScored(ball: BallState, hole: HoleState): void {
@@ -492,6 +700,19 @@ export class World {
     // Relocate the scored hole to a fresh random position on the course
     hole.x = 200 + Math.random() * (WORLD_WIDTH - 400);
     hole.y = 200 + Math.random() * (WORLD_HEIGHT - 400);
+
+    if (this.matchStatus === MatchStatus.Playing) {
+      const score = (scorer.frags ?? 0) + (scorer.holes ?? 0);
+      if (score >= MATCH_TARGET_SCORE) {
+        this.matchStatus = MatchStatus.Finished;
+        this.winnerId = scorer.id;
+        this.winnerName = scorer.name;
+        this.announce(
+          `MATCH OVER! ${scorer.name} reached 10 points and WON THE MATCH!`,
+        );
+      }
+      this.broadcastMatchState();
+    }
   }
 
   private broadcast(message: ServerMessage, excludeId?: string): void {

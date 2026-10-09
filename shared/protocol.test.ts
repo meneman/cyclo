@@ -58,6 +58,46 @@ describe("parseClientMessage", () => {
     assert.equal(message.seq, 3);
   });
 
+  test("accepts well-formed setColor and join messages", () => {
+    const joinMsg = parseClientMessage(
+      JSON.stringify({
+        type: "join",
+        name: "Tiger",
+        color: 0xef4444,
+      }),
+    );
+    assert.ok(joinMsg !== null && joinMsg.type === "join");
+    assert.equal(joinMsg.name, "Tiger");
+    assert.equal(joinMsg.color, 0xef4444);
+
+    const setColorMsg = parseClientMessage(
+      JSON.stringify({
+        type: "setColor",
+        color: 0x3b82f6,
+      }),
+    );
+    assert.ok(setColorMsg !== null && setColorMsg.type === "setColor");
+    assert.equal(setColorMsg.color, 0x3b82f6);
+
+    const joinRoomMsg = parseClientMessage(
+      JSON.stringify({
+        type: "join",
+        name: "Rory",
+        roomId: "custom-room-42",
+      }),
+    );
+    assert.ok(joinRoomMsg !== null && joinRoomMsg.type === "join");
+    assert.equal(joinRoomMsg.name, "Rory");
+    assert.equal(joinRoomMsg.roomId, "custom-room-42");
+
+    const rematchMsg = parseClientMessage(
+      JSON.stringify({
+        type: "rematch",
+      }),
+    );
+    assert.ok(rematchMsg !== null && rematchMsg.type === "rematch");
+  });
+
   test("rejects malformed payloads instead of throwing into the sim", () => {
     assert.equal(parseClientMessage("not json{"), null);
     assert.equal(parseClientMessage(JSON.stringify({})), null);
@@ -73,6 +113,10 @@ describe("parseClientMessage", () => {
     );
     assert.equal(
       parseClientMessage(JSON.stringify({ type: "join", name: 42 })),
+      null,
+    );
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "setColor", color: "red" })),
       null,
     );
     assert.equal(parseClientMessage(JSON.stringify({ type: "nope" })), null);

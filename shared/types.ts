@@ -103,3 +103,32 @@ export interface TrampolineState {
   radius: number;
   bounceVelocity: number;
 }
+
+// ── Match & Room types ───────────────────────────────────────────────────
+
+export const MatchStatus = {
+  Waiting: "waiting",
+  Countdown: "countdown",
+  Playing: "playing",
+  Finished: "finished",
+} as const;
+export type MatchStatus = (typeof MatchStatus)[keyof typeof MatchStatus];
+
+export interface MatchPlayerInfo {
+  id: string;
+  name: string;
+  color: number;
+  frags: number;
+  holes: number;
+  score: number;
+}
+
+export interface MatchState {
+  roomId: string;
+  status: MatchStatus;
+  countdownSeconds: number | null;
+  targetScore: number;
+  winnerId?: string;
+  winnerName?: string;
+  players: MatchPlayerInfo[];
+}

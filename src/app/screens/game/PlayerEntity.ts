@@ -27,6 +27,7 @@ export class PlayerEntity extends Container {
   private readonly edgeIndicator = new Graphics();
 
   private readonly nameLabel: Text;
+  private readonly colorDot = new Graphics();
   private chatBubble: Container | null = null;
   private chatBubbleTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -53,6 +54,7 @@ export class PlayerEntity extends Container {
     this.nameLabel.anchor.set(0.5, 1);
     this.nameLabel.y = -HEAD_OFFSET_PX;
     this.mainUi.addChild(this.nameLabel);
+    this.mainUi.addChild(this.colorDot);
 
     this.loadBubble = new Container();
     this.loadBubble.y = -LOAD_BUBBLE_OFFSET_PX;
@@ -82,6 +84,7 @@ export class PlayerEntity extends Container {
       snapshot.id.startsWith("bot-") || snapshot.name.startsWith("Bot ");
     const indicatorColor = isBot ? 0xffffff : snapshot.color;
 
+    this.updateColorDot(indicatorColor);
     this.edgeIndicator.visible = false;
     this.drawEdgeIndicator(indicatorColor);
     // Offset the arrow slightly so it's not exactly on the border
@@ -101,8 +104,27 @@ export class PlayerEntity extends Container {
       .stroke({ color: 0x000000, width: 2 });
   }
 
+  private updateColorDot(color: number): void {
+    this.colorDot.clear();
+    this.colorDot.circle(0, 0, 4.5);
+    this.colorDot.fill({ color });
+    this.colorDot.stroke({ color: 0x000000, width: 1.5 });
+    this.repositionColorDot();
+  }
+
+  private repositionColorDot(): void {
+    const halfWidth =
+      typeof document !== "undefined" &&
+      typeof document.createElement === "function"
+        ? this.nameLabel.width / 2
+        : 30;
+    this.colorDot.position.set(-halfWidth - 8, -HEAD_OFFSET_PX - 8);
+  }
+
   public setColor(color: number, isBot: boolean = false): void {
-    this.drawEdgeIndicator(isBot ? 0xffffff : color);
+    const indicatorColor = isBot ? 0xffffff : color;
+    this.drawEdgeIndicator(indicatorColor);
+    this.updateColorDot(indicatorColor);
   }
 
   public setScreenPosition(
@@ -123,6 +145,7 @@ export class PlayerEntity extends Container {
 
   public setName(name: string): void {
     this.nameLabel.text = name;
+    this.repositionColorDot();
   }
 
   /** Hides name label and bubbles while despawned as a blood stain */

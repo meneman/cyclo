@@ -29,6 +29,7 @@ import {
 import {
   createGolfBall,
   disposeGolfBallResources,
+  setGolfBallColor,
   updateGolfBallVisual,
 } from "./GolfBall";
 import { attachGolfClub, calculateGolfSwingPose } from "./GolfClub";
@@ -135,7 +136,7 @@ export class WorldScene {
   private readonly players = new Map<string, PlayerView>();
   private readonly pendingSpawns = new Map<
     string,
-    { x: number; y: number; charIndex: number }
+    { x: number; y: number; charIndex: number; color?: number }
   >();
   private templates: (CharacterTemplate | null)[] | null = null;
   private readonly dotGeometry = new THREE.CircleGeometry(PLAYER_RADIUS, 32);
@@ -273,7 +274,7 @@ export class WorldScene {
         }
       });
       for (const [id, spawn] of this.pendingSpawns) {
-        this.instantiate(id, spawn.x, spawn.y, spawn.charIndex);
+        this.instantiate(id, spawn.x, spawn.y, spawn.charIndex, spawn.color);
       }
       this.pendingSpawns.clear();
     });
@@ -297,7 +298,7 @@ export class WorldScene {
     this.camera.updateProjectionMatrix();
   }
 
-  public spawn(id: string, x: number, y: number): void {
+  public spawn(id: string, x: number, y: number, color?: number): void {
     if (this.players.has(id) || this.pendingSpawns.has(id)) {
       console.debug(`[golfi:scene] spawn ${id} ignored (already known)`);
       return;
@@ -307,11 +308,11 @@ export class WorldScene {
       `[golfi:scene] spawn ${id} at (${x.toFixed(0)}, ${y.toFixed(0)}) charIndex=${charIndex} templates=${this.templates ? "ready" : "loading"}`,
     );
     if (!this.templates) {
-      this.pendingSpawns.set(id, { x, y, charIndex });
+      this.pendingSpawns.set(id, { x, y, charIndex, color });
       console.info(`[golfi:scene] spawn queued for ${id} (templates loading)`);
       return;
     }
-    this.instantiate(id, x, y, charIndex);
+    this.instantiate(id, x, y, charIndex, color);
   }
 
   public move(
@@ -378,6 +379,8 @@ export class WorldScene {
         group = createGolfBall(b.color);
         this.scene.add(group);
         this.balls.set(b.id, group);
+      } else {
+        setGolfBallColor(group, b.color);
       }
       group.position.set(b.x, -b.y, 0);
       updateGolfBallVisual(group, b.z);
@@ -656,11 +659,41 @@ export class WorldScene {
     this.renderer.domElement.remove();
   }
 
+  public setColor(id: string, color: number): void {
+    const view = this.players.get(id);
+    if (!view || !view.body) return;
+    view.body.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        const materials = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        for (let i = 0; i < materials.length; i++) {
+          const mat = materials[i];
+          if (mat && "name" in mat && mat.name === "Shirt") {
+            if (!mat.userData.isCloned) {
+              const cloned = mat.clone();
+              cloned.userData.isCloned = true;
+              if (Array.isArray(child.material)) {
+                child.material[i] = cloned;
+              } else {
+                child.material = cloned;
+              }
+              (cloned as THREE.MeshStandardMaterial).color.setHex(color);
+            } else {
+              (mat as THREE.MeshStandardMaterial).color.setHex(color);
+            }
+          }
+        }
+      }
+    });
+  }
+
   private instantiate(
     id: string,
     x: number,
     y: number,
     charIndex: number,
+    color?: number,
   ): void {
     const yaw = new THREE.Group();
     yaw.position.set(x, -y, 0);
@@ -721,6 +754,10 @@ export class WorldScene {
       bloodStain,
       knockedDown: false,
     });
+
+    if (color !== undefined) {
+      this.setColor(id, color);
+    }
   }
 
   private action(

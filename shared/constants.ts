@@ -130,3 +130,14 @@ export const HIT_OFFSET_FORWARD = 18;
 export const HIT_OFFSET_RIGHT = 6;
 /** Hit zone radius — a ball whose edge touches this circle can be hit */
 export const HIT_RADIUS = 12;
+
+// ── 1v1 Match constants ──────────────────────────────────────────────────
+
+/** Target score to win a 1v1 match (frags + holes) */
+export const MATCH_TARGET_SCORE = 10;
+/** Countdown duration in seconds once 2 players enter a room */
+export const MATCH_COUNTDOWN_SECONDS = 10;
+/** Spawn coordinates for Player 1 at match start */
+export const MATCH_TEE_1_SPAWN = { x: 1400, y: 1500 };
+/** Spawn coordinates for Player 2 at match start */
+export const MATCH_TEE_2_SPAWN = { x: 1600, y: 1500 };

@@ -1,6 +1,6 @@
 import { sound } from "@pixi/sound";
 import type { Ticker } from "pixi.js";
-import { Container, Text } from "pixi.js";
+import { Container, Graphics, Text } from "pixi.js";
 
 import { findHittableBall } from "../../../../shared/ballPhysics";
 import {
@@ -20,6 +20,7 @@ import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
 import { getTerrainAt } from "../../../../shared/terrain";
 import type {
   InputState,
+  MatchState,
   PlayerState,
   TrampolineState,
 } from "../../../../shared/types";
@@ -32,7 +33,11 @@ import { engine } from "../../getEngine";
 import { userSettings } from "../../utils/userSettings";
 
 import { ChatBox } from "./ChatBox";
+import { CountdownBanner } from "./CountdownBanner";
+import { GameMenu } from "./GameMenu";
 import { KillBanner } from "./KillBanner";
+import { MatchEndOverlay } from "./MatchEndOverlay";
+import { MatchScoreboard } from "./MatchScoreboard";
 import { PlayerEntity } from "./PlayerEntity";
 import { StatsPanel } from "./StatsPanel";
 import { WorldScene } from "./WorldScene";
@@ -73,6 +78,13 @@ export class GameScreen extends Container {
   private readonly chatBox = new ChatBox();
   private readonly statsPanel = new StatsPanel();
   private readonly killBanner = new KillBanner();
+  private readonly matchScoreboard = new MatchScoreboard();
+  private readonly countdownBanner = new CountdownBanner();
+  private readonly matchEndOverlay = new MatchEndOverlay();
+  private readonly menuButton = new Container();
+  private readonly gameMenu = new GameMenu();
+  private currentPlayers: PlayerState[] = [];
+  private currentMatch: MatchState | null = null;
 
   private readonly network = new NetworkClient(resolveWsUrl());
   private readonly input = new InputController();
@@ -123,6 +135,44 @@ export class GameScreen extends Container {
     this.statsPanel.zIndex = 90;
     this.addChild(this.statsPanel);
 
+    this.matchScoreboard.zIndex = 85;
+    this.addChild(this.matchScoreboard);
+
+    this.countdownBanner.zIndex = 95;
+    this.addChild(this.countdownBanner);
+
+    this.matchEndOverlay.zIndex = 160;
+    this.matchEndOverlay.onRematch = () => {
+      this.network.send({ type: ClientMessageType.Rematch });
+    };
+    this.matchEndOverlay.onLeave = () => {
+      window.location.href = window.location.pathname;
+    };
+    this.addChild(this.matchEndOverlay);
+
+    // Clickable Menu HUD button
+    this.menuButton.eventMode = "static";
+    this.menuButton.cursor = "pointer";
+    this.drawMenuButton(false);
+    const menuBtnText = new Text({
+      text: "⚙ MENU (ESC)",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 12,
+        fontWeight: "bold",
+        fill: 0xe6edf3,
+      },
+    });
+    menuBtnText.anchor.set(0.5);
+    menuBtnText.position.set(75, 16);
+    this.menuButton.addChild(menuBtnText);
+
+    this.menuButton.on("pointerenter", () => this.drawMenuButton(true));
+    this.menuButton.on("pointerleave", () => this.drawMenuButton(false));
+    this.menuButton.on("pointertap", () => this.toggleMenu());
+    this.menuButton.zIndex = 90;
+    this.addChild(this.menuButton);
+
     this.chatBox.zIndex = 80;
     this.chatBox.onSend = (text) => {
       this.network.send({ type: ClientMessageType.Chat, text });
@@ -131,6 +181,41 @@ export class GameScreen extends Container {
 
     this.killBanner.zIndex = 100;
     this.addChild(this.killBanner);
+
+    this.gameMenu.zIndex = 150;
+    this.gameMenu.onSelectColor = (color) => {
+      userSettings.setPlayerColor(color);
+      this.network.send({ type: ClientMessageType.SetColor, color });
+      if (this.localState) {
+        this.localState.color = color;
+      }
+      if (this.localId) {
+        this.entities.get(this.localId)?.setColor(color, false);
+        this.worldScene?.setColor(this.localId, color);
+      }
+    };
+    this.gameMenu.onClose = () => {
+      this.input.setEnabled(!this.chatBox.editing);
+    };
+    this.addChild(this.gameMenu);
+  }
+
+  private drawMenuButton(hovered: boolean): void {
+    let bg = this.menuButton.getChildByName("menuBg") as Graphics | null;
+    if (!bg) {
+      bg = new Graphics();
+      bg.name = "menuBg";
+      this.menuButton.addChildAt(bg, 0);
+    }
+    bg.clear();
+    bg.roundRect(0, 0, 150, 32, 6);
+    if (hovered) {
+      bg.fill({ color: 0x21262d, alpha: 0.95 });
+      bg.stroke({ color: 0x58a6ff, width: 1.5 });
+    } else {
+      bg.fill({ color: 0x0d1117, alpha: 0.85 });
+      bg.stroke({ color: 0x30363d, width: 1.5 });
+    }
   }
 
   /** Called by Navigation right after the screen is added to the stage */
@@ -165,6 +250,9 @@ export class GameScreen extends Container {
     this.viewportHeight = initialHeight;
     this.killBanner.reposition(initialWidth, initialHeight);
     this.statsPanel.reposition(initialWidth, HUD_MARGIN, 36);
+    this.matchScoreboard.reposition(initialWidth);
+    this.countdownBanner.reposition(initialWidth, initialHeight);
+    this.matchEndOverlay.reposition(initialWidth, initialHeight);
     this.worldScene = new WorldScene();
     this.worldScene.setSize(initialWidth, initialHeight);
     this.input.onChange = (newInput) => {
@@ -178,9 +266,11 @@ export class GameScreen extends Container {
         console.info(`[golfi:game] connection ${connected ? "up" : "down"}`);
         this.connected = connected;
         if (connected) {
+          const savedColor = userSettings.getPlayerColor();
           this.network.send({
             type: ClientMessageType.Join,
             name: userSettings.getPlayerName() ?? "Player",
+            ...(savedColor !== null ? { color: savedColor } : {}),
           });
         }
       },
@@ -201,7 +291,7 @@ export class GameScreen extends Container {
         "[golfi:game] no local player yet (waiting for Welcome) — camera parked at world center",
       );
     }
-    this.input.setEnabled(!this.chatBox.editing);
+    this.input.setEnabled(!this.chatBox.editing && !this.gameMenu.isOpen);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
 
@@ -329,6 +419,8 @@ export class GameScreen extends Container {
 
     this.hud.text = `${this.connected ? "connected" : "reconnecting…"} · ${this.playerCount} player${this.playerCount === 1 ? "" : "s"}`;
     this.killBanner.update(dtSeconds);
+    this.matchScoreboard.update(dtSeconds);
+    this.countdownBanner.update(dtSeconds);
 
     if (this.debugEnabled) {
       const x = this.localState?.x ?? 0;
@@ -348,8 +440,13 @@ export class GameScreen extends Container {
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
     this.statsPanel.reposition(width, HUD_MARGIN, 36);
-    this.debugText.position.set(width - HUD_MARGIN, 108);
+    this.matchScoreboard.reposition(width);
+    this.countdownBanner.reposition(width, height);
+    this.matchEndOverlay.reposition(width, height);
+    this.menuButton.position.set(width - HUD_MARGIN - 150, 108);
+    this.debugText.position.set(width - HUD_MARGIN, 150);
     this.killBanner.reposition(width, height);
+    this.gameMenu.resize(width, height);
     this.worldScene?.setSize(width, height);
   }
 
@@ -379,18 +476,44 @@ export class GameScreen extends Container {
     this.debugEnabled = false;
     this.debugText.visible = false;
     this.statsPanel.setStats(0, 0);
+    this.gameMenu.close();
+    this.currentPlayers = [];
+    this.currentMatch = null;
+    this.matchEndOverlay.hide();
+  }
+
+  private toggleMenu(): void {
+    const list =
+      this.currentPlayers.length > 0
+        ? this.currentPlayers
+        : this.localState
+          ? [this.localState]
+          : [];
+    this.gameMenu.toggle(
+      this.localId,
+      this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
+      list,
+    );
+    this.input.setEnabled(!this.chatBox.editing && !this.gameMenu.isOpen);
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "Escape") {
+      if (this.chatBox.editing) return;
+      event.preventDefault();
+      this.toggleMenu();
+      return;
+    }
+
     if (event.code === CHAT_OPEN_KEY) {
-      if (this.chatBox.editing) return; // typing "y" into a message — don't re-trigger
+      if (this.chatBox.editing || this.gameMenu.isOpen) return; // typing "y" into a message — don't re-trigger
       event.preventDefault();
       this.chatBox.focus();
       return;
     }
 
     if (event.code !== DEBUG_TOGGLE_KEY) return;
-    if (this.chatBox.editing) return; // typing "`" into a message
+    if (this.chatBox.editing || this.gameMenu.isOpen) return; // typing "`" into a message
     event.preventDefault();
     this.debugEnabled = !this.debugEnabled;
     this.debugText.visible = this.debugEnabled;
@@ -429,10 +552,24 @@ export class GameScreen extends Container {
         } else {
           console.warn("[golfi:game] welcome missing local player entry");
         }
+        this.currentPlayers = message.players;
         this.playerCount = message.players.length;
+        this.currentMatch = message.match;
+        this.matchScoreboard.setMatch(message.match, this.localId);
+        this.countdownBanner.setCountdown(message.match.countdownSeconds);
+        if (message.match.status === "finished") {
+          this.matchEndOverlay.showMatchEnd(message.match, this.localId);
+        } else {
+          this.matchEndOverlay.hide();
+        }
         this.statsPanel.setStats(
           this.localState?.frags ?? 0,
           this.localState?.holes ?? 0,
+        );
+        this.gameMenu.updatePlayers(
+          this.currentPlayers,
+          this.localId,
+          this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
         );
         break;
       }
@@ -441,6 +578,12 @@ export class GameScreen extends Container {
         console.info(
           `[golfi:game] player joined ${message.player.id} "${message.player.name}" at (${message.player.x.toFixed(0)}, ${message.player.y.toFixed(0)})`,
         );
+        this.currentPlayers.push(message.player);
+        this.gameMenu.updatePlayers(
+          this.currentPlayers,
+          this.localId,
+          this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
+        );
         this.spawnEntity(message.player);
         this.playerCount = this.entities.size;
         break;
@@ -448,6 +591,14 @@ export class GameScreen extends Container {
       case ServerMessageType.PlayerLeft: {
         const known = this.entities.has(message.id);
         console.info(`[golfi:game] player left ${message.id} (known=${known})`);
+        this.currentPlayers = this.currentPlayers.filter(
+          (p) => p.id !== message.id,
+        );
+        this.gameMenu.updatePlayers(
+          this.currentPlayers,
+          this.localId,
+          this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
+        );
         this.entities.get(message.id)?.destroy();
         this.entities.delete(message.id);
         this.worldScene?.remove(message.id);
@@ -463,6 +614,16 @@ export class GameScreen extends Container {
           );
         }
         this.lastStateAt = now;
+        this.currentPlayers = message.players;
+        if (this.gameMenu.isOpen) {
+          this.gameMenu.updatePlayers(
+            this.currentPlayers,
+            this.localId,
+            this.localState?.color ??
+              userSettings.getPlayerColor() ??
+              undefined,
+          );
+        }
         this.interpolator.push(message.players);
 
         // Detect ball strikes: trigger sound if any ball's hitSeq incremented into flight/motion
@@ -490,6 +651,10 @@ export class GameScreen extends Container {
             const isBot =
               player.id.startsWith("bot-") || player.name.startsWith("Bot ");
             entity.setColor(player.color, isBot);
+            this.worldScene?.setColor(player.id, player.color);
+          }
+          if (player.id === this.localId && this.localState) {
+            this.localState.color = player.color;
           }
         }
         break;
@@ -527,6 +692,25 @@ export class GameScreen extends Container {
         }
         break;
       }
+
+      case ServerMessageType.MatchState: {
+        const prevStatus = this.currentMatch?.status;
+        this.currentMatch = message.match;
+        this.matchScoreboard.setMatch(message.match, this.localId);
+        this.countdownBanner.setCountdown(message.match.countdownSeconds);
+
+        if (prevStatus === "countdown" && message.match.status === "playing") {
+          this.playSound("card-place-3");
+          this.countdownBanner.triggerMatchStart();
+        }
+
+        if (message.match.status === "finished") {
+          this.matchEndOverlay.showMatchEnd(message.match, this.localId);
+        } else {
+          this.matchEndOverlay.hide();
+        }
+        break;
+      }
     }
   }
 
@@ -547,7 +731,7 @@ export class GameScreen extends Container {
     entity.zIndex = 10;
     this.entities.set(snapshot.id, entity);
     this.addChild(entity);
-    this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y);
+    this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y, snapshot.color);
     this.placeLabel(snapshot.id, snapshot.x, snapshot.y);
   }
 
@@ -561,6 +745,7 @@ export class GameScreen extends Container {
     this.ballPredictor.clear();
     this.worldScene?.clear();
     this.localState = null;
+    this.currentPlayers = [];
   }
 
   /** Positions a player's overlay label from its world position */

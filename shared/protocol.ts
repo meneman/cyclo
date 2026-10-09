@@ -4,6 +4,7 @@ import type {
   PlayerSnapshot,
   HoleState,
   TrampolineState,
+  MatchState,
 } from "./types";
 
 /**
@@ -15,6 +16,8 @@ export const ClientMessageType = {
   Input: "input",
   Ping: "ping",
   Chat: "chat",
+  SetColor: "setColor",
+  Rematch: "rematch",
 } as const;
 export type ClientMessageType =
   (typeof ClientMessageType)[keyof typeof ClientMessageType];
@@ -28,15 +31,23 @@ export const ServerMessageType = {
   Chat: "chat",
   Kill: "kill",
   HoleScored: "holeScored",
+  MatchState: "matchState",
 } as const;
 export type ServerMessageType =
   (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
 export type ClientMessage =
-  | { type: typeof ClientMessageType.Join; name: string }
+  | {
+      type: typeof ClientMessageType.Join;
+      name: string;
+      color?: number;
+      roomId?: string;
+    }
   | { type: typeof ClientMessageType.Input; seq: number; input: InputState }
   | { type: typeof ClientMessageType.Ping; t: number }
-  | { type: typeof ClientMessageType.Chat; text: string };
+  | { type: typeof ClientMessageType.Chat; text: string }
+  | { type: typeof ClientMessageType.SetColor; color: number }
+  | { type: typeof ClientMessageType.Rematch };
 
 /**
  * Coerces an untrusted value into an InputState — any truthy flag counts as
@@ -100,10 +111,28 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         input: sanitizeInputState(record.input),
       };
     }
-    case ClientMessageType.Join:
-      return typeof record.name === "string"
-        ? { type: ClientMessageType.Join, name: record.name }
-        : null;
+    case ClientMessageType.Join: {
+      if (typeof record.name !== "string") return null;
+      const joinMsg: {
+        type: typeof ClientMessageType.Join;
+        name: string;
+        color?: number;
+        roomId?: string;
+      } = {
+        type: ClientMessageType.Join,
+        name: record.name,
+      };
+      if (typeof record.color === "number" && Number.isFinite(record.color)) {
+        joinMsg.color = record.color;
+      }
+      if (
+        typeof record.roomId === "string" &&
+        record.roomId.trim().length > 0
+      ) {
+        joinMsg.roomId = record.roomId.trim();
+      }
+      return joinMsg;
+    }
     case ClientMessageType.Ping:
       return typeof record.t === "number" && Number.isFinite(record.t)
         ? { type: ClientMessageType.Ping, t: record.t }
@@ -112,6 +141,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return typeof record.text === "string"
         ? { type: ClientMessageType.Chat, text: record.text }
         : null;
+    case ClientMessageType.SetColor:
+      return typeof record.color === "number" && Number.isFinite(record.color)
+        ? { type: ClientMessageType.SetColor, color: record.color }
+        : null;
+    case ClientMessageType.Rematch:
+      return { type: ClientMessageType.Rematch };
     default:
       return null;
   }
@@ -127,6 +162,7 @@ export type ServerMessage =
       balls: BallState[];
       holes: HoleState[];
       trampolines: TrampolineState[];
+      match: MatchState;
     }
   | {
       type: typeof ServerMessageType.State;
@@ -156,4 +192,8 @@ export type ServerMessage =
       playerId: string;
       playerName: string;
       holeId: string;
+    }
+  | {
+      type: typeof ServerMessageType.MatchState;
+      match: MatchState;
     };

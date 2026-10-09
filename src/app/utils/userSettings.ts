@@ -6,6 +6,7 @@ const KEY_VOLUME_MASTER = "volume-master";
 const KEY_VOLUME_BGM = "volume-bgm";
 const KEY_VOLUME_SFX = "volume-sfx";
 const KEY_PLAYER_NAME = "player-name";
+const KEY_PLAYER_COLOR = "player-color";
 
 /**
  * Persistent user settings of volumes.
@@ -58,6 +59,16 @@ class UserSettings {
   /** Set the player's display name */
   public setPlayerName(value: string) {
     storage.setString(KEY_PLAYER_NAME, value);
+  }
+
+  /** Get the player's saved color preference, if set */
+  public getPlayerColor(): number | null {
+    return storage.getNumber(KEY_PLAYER_COLOR) ?? null;
+  }
+
+  /** Set the player's saved color preference */
+  public setPlayerColor(value: number): void {
+    storage.setNumber(KEY_PLAYER_COLOR, value);
   }
 }
 

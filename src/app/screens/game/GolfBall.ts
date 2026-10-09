@@ -137,6 +137,14 @@ export function createGolfBall(color = 0xffffff): THREE.Group {
   return group;
 }
 
+/** Updates the owner ring color of a golf ball */
+export function setGolfBallColor(group: THREE.Group, color: number): void {
+  const ring = group.getObjectByName("Ring") as THREE.Mesh | undefined;
+  if (ring && ring.material instanceof THREE.MeshBasicMaterial) {
+    ring.material.color.setHex(color);
+  }
+}
+
 /**
  * Updates ball and shadow 3D height appearance:
  * - Ball moves up along Z and scales up slightly (x1.0 -> x1.4)
