@@ -71,12 +71,10 @@ const DOT_COLOR = 0x000000;
  * characters plus near-plane clipping streaks.)
  */
 const CHARACTER_SCALE = 0.06;
-/**
- * Camera elevation above the XY playfield: models stand ~29 units tall
- * (480 raw units * CHARACTER_SCALE 0.06), so 50u keeps the camera safely
- * above heads with orthographic near-plane margin.
- */
-const CAMERA_HEIGHT = 50;
+/** Camera tilt angle from vertical in radians (30° tilt = 60° pitch from the ground) */
+export const CAMERA_TILT_ANGLE = Math.PI / 6;
+/** Distance along the camera viewing axis to the ground focus point */
+export const CAMERA_DISTANCE = 300;
 /**
  * Tips the Y-up characters forward so they stand toward the camera in the
  * top-down XY-plane scene: model-up lands on scene +Z, model-forward (+Z)
@@ -90,19 +88,12 @@ const STAND_UPRIGHT_X = Math.PI / 2;
  */
 const FACING_OFFSET = 0;
 
-const HEADING_STEP = Math.PI / 4;
-
 /**
- * Snaps a world-space travel direction to the nearest of the 8 movement
- * headings, as a scene yaw. Yaw a (rotation about scene Z) maps model
- * forward (0,-1) to (sin a, -cos a); matching heading (dx, dy) gives
- * a = atan2(dx, dy), quantized to HEADING_STEP. Pure so it stays
- * unit-testable without a renderer.
+ * Returns continuous exact scene yaw for travel/aim direction (dx, dy).
+ * Pure so it stays unit-testable without a renderer.
  */
 export function yawForDirection(dx: number, dy: number): number {
-  return (
-    Math.round(Math.atan2(dx, dy) / HEADING_STEP) * HEADING_STEP + FACING_OFFSET
-  );
+  return Math.atan2(dx, dy) + FACING_OFFSET;
 }
 /** Per-frame world-unit displacement above which a player counts as walking */
 const WALK_THRESHOLD = 0.5;
@@ -173,6 +164,7 @@ export class WorldScene {
   private focusY = WORLD_HEIGHT / 2;
   private frames = 0;
   private readonly unknownMoveIds = new Set<string>();
+  private readonly projectVector = new THREE.Vector3();
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -247,7 +239,8 @@ export class WorldScene {
     this.landingMarker.visible = false;
     this.scene.add(this.landingMarker);
 
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1000);
+    this.camera.up.set(0, 0, 1);
     this.updateCamera(this.focusX, this.focusY);
     console.info(
       `[golfi:scene] created: field ${WORLD_WIDTH}x${WORLD_HEIGHT}, camera near=${this.camera.near} far=${this.camera.far} z=${this.camera.position.z} zoom=${CAMERA_ZOOM} charScale=${CHARACTER_SCALE}, waiting for character templates`,
@@ -320,7 +313,6 @@ export class WorldScene {
     }
     this.instantiate(id, x, y, charIndex);
   }
-    z?: number,
 
   public move(
     id: string,
@@ -349,8 +341,7 @@ export class WorldScene {
     const dx = x - view.lastX;
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, z ?? 0);
-    const zScale = 1.0 + (z ?? 0) * 0.015; // Grow 15% for every 10 units of height
-    view.yaw.scale.setScalar(CHARACTER_SCALE * zScale);
+    view.yaw.scale.setScalar(CHARACTER_SCALE);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
 
     // Rotation: prefer authoritative facing vector, fall back to delta movement
@@ -616,10 +607,16 @@ export class WorldScene {
   }
 
   /** Screen-space (Pixi overlay) position of a world point under the current camera */
-  public project(x: number, y: number, z: number = 0): { sx: number; sy: number } {
+  public project(
+    x: number,
+    y: number,
+    z: number = 0,
+  ): { sx: number; sy: number } {
+    this.projectVector.set(x, -y, z);
+    this.projectVector.project(this.camera);
     return {
-      sx: (x - this.focusX) * CAMERA_ZOOM + this.viewWidth / 2,
-      sy: (y - z - this.focusY) * CAMERA_ZOOM + this.viewHeight / 2,
+      sx: ((this.projectVector.x + 1) / 2) * this.viewWidth,
+      sy: ((-this.projectVector.y + 1) / 2) * this.viewHeight,
     };
   }
 
@@ -767,8 +764,11 @@ export class WorldScene {
   private updateCamera(focusX: number, focusY: number): void {
     this.focusX = focusX;
     this.focusY = focusY;
-    this.camera.position.set(this.focusX, -this.focusY, CAMERA_HEIGHT);
+    const camOffsetY = CAMERA_DISTANCE * Math.sin(CAMERA_TILT_ANGLE);
+    const camHeight = CAMERA_DISTANCE * Math.cos(CAMERA_TILT_ANGLE);
+    this.camera.position.set(this.focusX, -this.focusY - camOffsetY, camHeight);
     this.camera.lookAt(this.focusX, -this.focusY, 0);
+    this.camera.updateMatrixWorld();
   }
 
   private buildTerrainZones(): void {

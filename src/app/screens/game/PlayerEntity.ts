@@ -3,11 +3,10 @@ import { Container, Graphics, Text } from "pixi.js";
 import type { PlayerSnapshot } from "../../../../shared/types";
 
 /**
- * Label height above the character's feet, in screen px: the models stand
- * ~480 units tall at CHARACTER_SCALE 0.06 under CAMERA_ZOOM 3
- * (~85px), so the name floats just above the head.
+ * Label height above the character's feet, in screen px: at 30° camera tilt,
+ * models stand ~43px tall on screen, so 56px floats neatly just above the head.
  */
-const HEAD_OFFSET_PX = 92;
+const HEAD_OFFSET_PX = 56;
 
 /** Height of the load bubble above the feet, directly above the name tag */
 const LOAD_BUBBLE_OFFSET_PX = HEAD_OFFSET_PX + 18;

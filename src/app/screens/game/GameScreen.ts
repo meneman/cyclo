@@ -233,7 +233,6 @@ export class GameScreen extends Container {
       this.worldScene.move(
         this.localState.id,
         this.localState.x,
-        this.localState.z,
         this.localState.y,
         isMoving,
         this.localState.facingX,
@@ -247,7 +246,12 @@ export class GameScreen extends Container {
         this.localState.swingSeq ?? 0,
         dtSeconds,
       );
-      this.placeLabel(this.localState.id, this.localState.x, this.localState.y);
+      this.placeLabel(
+        this.localState.id,
+        this.localState.x,
+        this.localState.y,
+        this.localState.z ?? 0,
+      );
       this.entities
         .get(this.localState.id)
         ?.setSwingCharge(
@@ -268,7 +272,6 @@ export class GameScreen extends Container {
         this.entities.get(id)?.setKnockedDown(remoteKnockedDown);
         this.worldScene.move(
           id,
-          sample.z,
           sample.x,
           sample.y,
           undefined,
@@ -283,7 +286,7 @@ export class GameScreen extends Container {
           sample.swingSeq ?? 0,
           dtSeconds,
         );
-        this.placeLabel(id, sample.x, sample.y);
+        this.placeLabel(id, sample.x, sample.y, sample.z ?? 0);
         this.entities
           .get(id)
           ?.setSwingCharge(
