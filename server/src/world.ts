@@ -7,6 +7,7 @@ import {
   strikeBall,
 } from "../../shared/ballPhysics";
 import {
+  PLAYER_COLORS,
   TICK_INTERVAL_MS,
   TICK_RATE_HZ,
   WORLD_HEIGHT,
@@ -33,11 +34,6 @@ export interface SocketData {
 const CHAT_MAX_LENGTH = 200;
 const SYSTEM_SENDER_ID = "system";
 const SYSTEM_SENDER_NAME = "System";
-
-const PLAYER_COLORS = [
-  0xef4444, 0x3b82f6, 0x22c55e, 0xf59e0b, 0xa855f7, 0xec4899, 0x14b8a6,
-  0xf97316,
-];
 
 const IDLE_INPUT: InputState = {
   up: false,
@@ -144,12 +140,14 @@ export class World {
   }
 
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
+    const randomColor =
+      PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
     const state: PlayerState = {
       id,
       name: `Player-${id.slice(0, 4)}`,
       x: WORLD_WIDTH / 2,
       y: WORLD_HEIGHT / 2,
-      color: PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length],
+      color: randomColor,
       facingX: 0,
       facingY: 1,
       frags: 0,

@@ -39,6 +39,28 @@ export const BALL_PLAYER_RESTITUTION = 0.75;
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
 export const WORLD_TOPIC = "world";
 
+/**
+ * Static palette of distinct colors assigned to players.
+ * When joining, players get a dedicated random color from this list.
+ */
+export const PLAYER_COLORS: readonly number[] = [
+  0xef4444, // Red
+  0x3b82f6, // Blue
+  0x22c55e, // Green
+  0xf59e0b, // Amber / Yellow
+  0xa855f7, // Purple
+  0xec4899, // Pink
+  0x14b8a6, // Teal
+  0xf97316, // Orange
+  0x06b6d4, // Cyan
+  0x84cc16, // Lime
+  0xe11d48, // Rose
+  0x8b5cf6, // Violet
+];
+
+/** Color used for bot off-screen indicators */
+export const BOT_INDICATOR_COLOR = 0xffffff;
+
 /** Time in seconds of holding Space required to reach 100% swing power */
 export const MAX_CHARGE_DURATION_SECONDS = 1.5;
 

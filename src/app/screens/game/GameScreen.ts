@@ -468,7 +468,13 @@ export class GameScreen extends Container {
         // after the server's initial Welcome/PlayerJoined snapshot, so the
         // real name only shows up once it comes back through a state tick.
         for (const player of message.players) {
-          this.entities.get(player.id)?.setName(player.name);
+          const entity = this.entities.get(player.id);
+          if (entity) {
+            entity.setName(player.name);
+            const isBot =
+              player.id.startsWith("bot-") || player.name.startsWith("Bot ");
+            entity.setColor(player.color, isBot);
+          }
         }
         break;
       }

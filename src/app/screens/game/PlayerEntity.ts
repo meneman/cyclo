@@ -79,18 +79,31 @@ export class PlayerEntity extends Container {
     );
     this.mainUi.addChild(this.loadBubble);
 
+    const isBot =
+      snapshot.id.startsWith("bot-") || snapshot.name.startsWith("Bot ");
+    const indicatorColor = isBot ? 0xffffff : snapshot.color;
+
     this.edgeIndicator.visible = false;
+    this.drawEdgeIndicator(indicatorColor);
+    // Offset the arrow slightly so it's not exactly on the border
+
+    this.addChild(this.mainUi);
+    this.addChild(this.edgeIndicator);
+  }
+
+  private drawEdgeIndicator(color: number): void {
+    this.edgeIndicator.clear();
     this.edgeIndicator
       .moveTo(12, 0)
       .lineTo(-8, 8)
       .lineTo(-8, -8)
       .closePath()
-      .fill({ color: 0xffffff, alpha: 0.9 })
+      .fill({ color, alpha: 0.9 })
       .stroke({ color: 0x000000, width: 2 });
-    // Offset the arrow slightly so it's not exactly on the border
+  }
 
-    this.addChild(this.mainUi);
-    this.addChild(this.edgeIndicator);
+  public setColor(color: number, isBot: boolean = false): void {
+    this.drawEdgeIndicator(isBot ? 0xffffff : color);
   }
 
   public setScreenPosition(
