@@ -18,7 +18,11 @@ import {
 import type { ServerMessage } from "../../../../shared/protocol";
 import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
 import { getTerrainAt } from "../../../../shared/terrain";
-import type { InputState, PlayerState } from "../../../../shared/types";
+import type {
+  InputState,
+  PlayerState,
+  TrampolineState,
+} from "../../../../shared/types";
 import { BallPredictor } from "../../../net/BallPredictor";
 import { resolveWsUrl } from "../../../net/config";
 import { InputController } from "../../../net/InputController";
@@ -75,6 +79,7 @@ export class GameScreen extends Container {
   private readonly interpolator = new SnapshotInterpolator(
     INTERPOLATION_DELAY_MS,
   );
+  private trampolines: TrampolineState[] = [];
   private readonly ballPredictor = new BallPredictor();
 
   private readonly entities = new Map<string, PlayerEntity>();
@@ -221,17 +226,19 @@ export class GameScreen extends Container {
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
-      stepPlayer(this.localState, currentInput, dtSeconds);
+      stepPlayer(this.localState, currentInput, dtSeconds, this.trampolines);
       const localKnockedDown = (this.localState.knockdownTimer ?? 0) > 0;
       this.worldScene.setKnockdown(this.localState.id, localKnockedDown);
       this.entities.get(this.localState.id)?.setKnockedDown(localKnockedDown);
       this.worldScene.move(
         this.localState.id,
         this.localState.x,
+        this.localState.z,
         this.localState.y,
         isMoving,
         this.localState.facingX,
         this.localState.facingY,
+        this.localState.z,
       );
       this.worldScene.setSwing(
         this.localState.id,
@@ -261,11 +268,13 @@ export class GameScreen extends Container {
         this.entities.get(id)?.setKnockedDown(remoteKnockedDown);
         this.worldScene.move(
           id,
+          sample.z,
           sample.x,
           sample.y,
           undefined,
           sample.facingX,
           sample.facingY,
+          sample.z,
         );
         this.worldScene.setSwing(
           id,
@@ -287,7 +296,7 @@ export class GameScreen extends Container {
       }
     }
 
-    this.ballPredictor.update(dtSeconds);
+    this.ballPredictor.update(dtSeconds, this.trampolines);
     this.worldScene.syncBalls(this.ballPredictor.getBalls());
 
     const hittable = this.localState
@@ -400,9 +409,11 @@ export class GameScreen extends Container {
         for (const ball of message.balls) {
           this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
         }
+        this.trampolines = message.trampolines;
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncBalls(this.ballPredictor.getBalls());
         this.worldScene?.syncHoles(message.holes);
+        this.worldScene?.syncTrampolines(message.trampolines);
         for (const player of message.players) {
           this.spawnEntity(player);
         }
@@ -460,8 +471,10 @@ export class GameScreen extends Container {
           this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
         }
 
+        this.trampolines = message.trampolines;
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncHoles(message.holes);
+        this.worldScene?.syncTrampolines(message.trampolines);
         this.reconcileLocalPlayer(message.players);
         // Names aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
@@ -548,9 +561,9 @@ export class GameScreen extends Container {
   }
 
   /** Positions a player's overlay label from its world position */
-  private placeLabel(id: string, x: number, y: number): void {
+  private placeLabel(id: string, x: number, y: number, z: number = 0): void {
     if (!this.worldScene) return;
-    let { sx, sy } = this.worldScene.project(x, y);
+    let { sx, sy } = this.worldScene.project(x, y, z);
 
     const isLocal = id === this.localId;
     let isOffScreen = false;

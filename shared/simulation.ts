@@ -5,8 +5,14 @@ import {
   PLAYER_SPEED,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  PLAYER_GRAVITY,
 } from "./constants";
-import type { InputState, PlayerState, Vector2 } from "./types";
+import type {
+  InputState,
+  PlayerState,
+  Vector2,
+  TrampolineState,
+} from "./types";
 
 /** Diagonal component so diagonals run at the same speed as cardinals */
 const DIAGONAL_COMPONENT = Math.SQRT1_2;
@@ -46,6 +52,7 @@ export function stepPlayer(
   player: PlayerState,
   input: InputState,
   dtSeconds: number,
+  trampolines?: Iterable<TrampolineState>,
 ): PlayerState {
   if ((player.knockdownTimer ?? 0) > 0) {
     player.knockdownTimer = Math.max(
@@ -58,6 +65,31 @@ export function stepPlayer(
     player.x = clamp(player.x, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS);
     player.y = clamp(player.y, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS);
     return player;
+  }
+
+  // Z-axis simulation
+  if (player.z === undefined) player.z = 0;
+  if (player.vz === undefined) player.vz = 0;
+
+  if (player.z > 0 || player.vz !== 0) {
+    player.vz -= PLAYER_GRAVITY * dtSeconds;
+    player.z += player.vz * dtSeconds;
+    if (player.z <= 0) {
+      player.z = 0;
+      player.vz = 0;
+    }
+  }
+
+  // Trampoline collision
+  if (player.z === 0 && trampolines) {
+    for (const tramp of trampolines) {
+      const dist = Math.hypot(player.x - tramp.x, player.y - tramp.y);
+      if (dist <= tramp.radius) {
+        player.vz = tramp.bounceVelocity * 0.8; // slightly less than ball bounce
+        player.z = 0.01; // detach from ground
+        break;
+      }
+    }
   }
 
   const inDownswing = (player.impactTimer ?? 0) > 0;
@@ -96,6 +128,7 @@ export function stepPlayer(
   } else {
     const direction = directionFromInput(input);
     if (direction) {
+      // Allow moving while in the air, or maybe not? Let's allow it
       player.x += direction.x * PLAYER_SPEED * dtSeconds;
       player.y += direction.y * PLAYER_SPEED * dtSeconds;
       player.facingX = direction.x;

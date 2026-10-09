@@ -1,4 +1,10 @@
-import type { BallState, InputState, PlayerSnapshot, HoleState } from "./types";
+import type {
+  BallState,
+  InputState,
+  PlayerSnapshot,
+  HoleState,
+  TrampolineState,
+} from "./types";
 
 /**
  * Plain string-literal unions instead of TS enums: safe under `isolatedModules`
@@ -120,12 +126,14 @@ export type ServerMessage =
       players: PlayerSnapshot[];
       balls: BallState[];
       holes: HoleState[];
+      trampolines: TrampolineState[];
     }
   | {
       type: typeof ServerMessageType.State;
       players: PlayerSnapshot[];
       balls: BallState[];
       holes: HoleState[];
+      trampolines: TrampolineState[];
     }
   | { type: typeof ServerMessageType.PlayerJoined; player: PlayerSnapshot }
   | { type: typeof ServerMessageType.PlayerLeft; id: string }

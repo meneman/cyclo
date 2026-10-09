@@ -31,6 +31,8 @@ export interface PlayerState {
   name: string;
   x: number;
   y: number;
+  z?: number;
+  vz?: number;
   color: number;
   /** Current swing charge from 0 (not charging) to 1 (full charge) */
   charge?: number;
@@ -92,4 +94,12 @@ export interface HoleState {
   x: number;
   y: number;
   radius: number;
+}
+
+export interface TrampolineState {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  bounceVelocity: number;
 }

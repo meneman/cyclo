@@ -1,5 +1,5 @@
 import { stepBall } from "../../shared/ballPhysics";
-import type { BallState } from "../../shared/types";
+import type { BallState, TrampolineState } from "../../shared/types";
 
 export interface RenderBall {
   id: string;
@@ -81,12 +81,24 @@ export class BallPredictor {
     }
   }
 
-  public update(dtSeconds: number): void {
+  public update(
+    dtSeconds: number,
+    trampolines?: Iterable<TrampolineState>,
+  ): void {
     const blend = 1 - Math.exp(-dtSeconds * BLEND_RATE);
 
     for (const ball of this.balls.values()) {
       if (!ball.sim.resting) {
-        stepBall(ball.sim, dtSeconds);
+        stepBall(
+          ball.sim,
+          dtSeconds,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          trampolines,
+        );
       }
 
       const dx = ball.sim.x - ball.renderX;

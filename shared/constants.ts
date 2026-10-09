@@ -27,7 +27,7 @@ export const INPUT_SEND_INTERVAL_MS = 1000 / INPUT_SEND_RATE_HZ;
 export const INTERPOLATION_DELAY_MS = 100;
 
 /** Constant movement speed, world units per second */
-export const PLAYER_SPEED = 180;
+export const PLAYER_SPEED = 150;
 export const PLAYER_RADIUS = 14; // visual size (marker, world-bound clamp)
 /** Character height in world units. Balls flying above this pass over players */
 export const PLAYER_HEIGHT = 29;
@@ -35,6 +35,8 @@ export const PLAYER_HEIGHT = 29;
 export const KNOCKDOWN_DURATION_SECONDS = 1.5;
 /** Fraction of velocity kept when a golf ball bounces off a player — punchy arcade deflection */
 export const BALL_PLAYER_RESTITUTION = 0.75;
+
+export const PLAYER_GRAVITY = 1000; // snappy jump gravity
 
 /** Bun pub/sub topic every connected socket subscribes to for world-state broadcasts */
 export const WORLD_TOPIC = "world";

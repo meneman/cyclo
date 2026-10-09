@@ -23,6 +23,7 @@ import type {
   InputState,
   PlayerState,
   HoleState,
+  TrampolineState,
 } from "../../shared/types";
 import type { BotPlayer, BotSpawnOptions } from "./bot";
 import { createBotPlayer, DEFAULT_BOT_SPAWNS, stepBot } from "./bot";
@@ -61,6 +62,7 @@ export class World {
   private readonly bots = new Map<string, BotPlayer>();
   private readonly balls = new Map<string, BallState>();
   private readonly holes = new Map<string, HoleState>();
+  private readonly trampolines = new Map<string, TrampolineState>();
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
@@ -73,6 +75,20 @@ export class World {
         x: Math.random() * WORLD_WIDTH,
         y: Math.random() * WORLD_HEIGHT,
         radius: 30 + Math.random() * 20,
+      });
+    }
+
+    for (let i = 0; i < 5; i++) {
+      const id = `trampoline-${i}`;
+      // Put the first trampoline right next to the spawn point so it's easy to test
+      const x = i === 0 ? WORLD_WIDTH / 2 + 100 : Math.random() * WORLD_WIDTH;
+      const y = i === 0 ? WORLD_HEIGHT / 2 : Math.random() * WORLD_HEIGHT;
+      this.trampolines.set(id, {
+        id,
+        x,
+        y,
+        radius: 40,
+        bounceVelocity: 800,
       });
     }
 
@@ -185,6 +201,7 @@ export class World {
       players: this.snapshot(),
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
+      trampolines: this.trampolineSnapshot(),
     });
 
     this.broadcast({ type: ServerMessageType.PlayerJoined, player: state }, id);
@@ -288,7 +305,12 @@ export class World {
 
     const dtSeconds = TICK_INTERVAL_MS / 1000;
     for (const connection of this.connections.values()) {
-      stepPlayer(connection.state, connection.input, dtSeconds);
+      stepPlayer(
+        connection.state,
+        connection.input,
+        dtSeconds,
+        this.trampolines.values(),
+      );
       if (connection.state.impactDue) {
         connection.state.impactDue = false;
         const hittable = findHittableBall(
@@ -308,7 +330,13 @@ export class World {
     }
 
     for (const bot of this.bots.values()) {
-      stepBot(bot, dtSeconds, WORLD_WIDTH, WORLD_HEIGHT);
+      stepBot(
+        bot,
+        dtSeconds,
+        WORLD_WIDTH,
+        WORLD_HEIGHT,
+        this.trampolines.values(),
+      );
     }
 
     const playerStates = [
@@ -329,6 +357,7 @@ export class World {
           (b, hole) => {
             this.handleHoleScored(b, hole);
           },
+          this.trampolines.values(),
         );
       }
 
@@ -359,6 +388,7 @@ export class World {
       players: this.snapshot(),
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
+      trampolines: this.trampolineSnapshot(),
     };
     server.publish(WORLD_TOPIC, JSON.stringify(message));
   }
@@ -380,6 +410,10 @@ export class World {
 
   private holeSnapshot(): HoleState[] {
     return Array.from(this.holes.values(), (h) => ({ ...h }));
+  }
+
+  private trampolineSnapshot(): TrampolineState[] {
+    return Array.from(this.trampolines.values(), (t) => ({ ...t }));
   }
 
   private sendTo(

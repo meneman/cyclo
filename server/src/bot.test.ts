@@ -28,7 +28,7 @@ describe("bot system", () => {
   });
 
   test("DEFAULT_BOT_SPAWNS contains golfers across the course", () => {
-    expect(DEFAULT_BOT_SPAWNS.length).toBeGreaterThanOrEqual(8);
+    expect(DEFAULT_BOT_SPAWNS.length).toBeGreaterThanOrEqual(3);
     for (const spawn of DEFAULT_BOT_SPAWNS) {
       expect(spawn.name).toBeDefined();
       expect(spawn.x).toBeGreaterThan(0);

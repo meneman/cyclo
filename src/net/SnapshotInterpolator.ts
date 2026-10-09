@@ -63,14 +63,35 @@ export class SnapshotInterpolator {
     const span = newer.receivedAt - older.receivedAt || 1;
     const t = (renderTime - older.receivedAt) / span;
 
-    return {
+    const result: PlayerSnapshot = {
       ...b,
       x: lerp(a.x, b.x, t),
       y: lerp(a.y, b.y, t),
     };
+
+    if (
+      a.facingX !== undefined &&
+      a.facingY !== undefined &&
+      b.facingX !== undefined &&
+      b.facingY !== undefined
+    ) {
+      const angleA = Math.atan2(a.facingY, a.facingX);
+      const angleB = Math.atan2(b.facingY, b.facingX);
+      const interpolatedAngle = lerpAngle(angleA, angleB, t);
+      result.facingX = Math.cos(interpolatedAngle);
+      result.facingY = Math.sin(interpolatedAngle);
+    }
+
+    return result;
   }
 }
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function lerpAngle(a: number, b: number, t: number): number {
+  const d = b - a;
+  const delta = ((d + Math.PI) % (Math.PI * 2)) - Math.PI;
+  return a + (delta < -Math.PI ? delta + Math.PI * 2 : delta) * t;
 }

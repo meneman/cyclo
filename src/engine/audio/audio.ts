@@ -1,6 +1,7 @@
 import type { PlayOptions, Sound } from "@pixi/sound";
 import { sound } from "@pixi/sound";
 import { animate } from "motion";
+import { Assets } from "pixi.js";
 
 /**
  * Handles music background, playing only one audio file in loop at time,
@@ -31,7 +32,12 @@ export class BGM {
     }
 
     // Find out the new instance to be played
-    this.current = sound.find(alias);
+    this.current = sound.find(alias) ?? Assets.get<Sound>(alias);
+
+    if (!this.current) {
+      console.warn(`[BGM] Sound not found for alias: ${alias}`);
+      return;
+    }
 
     // Play and fade in the new music
     this.currentAlias = alias;
@@ -69,7 +75,12 @@ export class SFX {
   /** Play an one-shot sound effect */
   public play(alias: string, options?: PlayOptions) {
     const volume = this.volume * (options?.volume ?? 1);
-    sound.play(alias, { ...options, volume });
+    const snd = sound.find(alias) ?? Assets.get<Sound>(alias);
+    if (snd) {
+      snd.play({ ...options, volume });
+    } else {
+      console.warn(`[SFX] Sound not found for alias: ${alias}`);
+    }
   }
 
   /** Set sound effects volume */

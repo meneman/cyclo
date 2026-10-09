@@ -13,7 +13,11 @@ import {
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
 import { COURSE_ZONES } from "../../../../shared/terrain";
 import type { TerrainZone } from "../../../../shared/terrain";
-import type { PlayerState, HoleState } from "../../../../shared/types";
+import type {
+  PlayerState,
+  HoleState,
+  TrampolineState,
+} from "../../../../shared/types";
 import type { RenderBall } from "../../../net/BallPredictor";
 
 import type { CharacterTemplate } from "./CharacterRoster";
@@ -85,7 +89,7 @@ const STAND_UPRIGHT_X = Math.PI / 2;
  * site) if characters strafe or moonwalk.
  */
 const FACING_OFFSET = 0;
-/** Facing snaps to 8 headings (the 8 movement vectors), in radians */
+
 const HEADING_STEP = Math.PI / 4;
 
 /**
@@ -157,6 +161,7 @@ export class WorldScene {
   private readonly terrainTextures: THREE.Texture[] = [];
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
+  private readonly trampolineMeshes = new Map<string, THREE.Mesh>();
   private readonly rangeIndicator: THREE.Mesh;
   private readonly rangeMaterial: THREE.MeshBasicMaterial;
   private readonly rangeGeometry: THREE.RingGeometry;
@@ -315,6 +320,7 @@ export class WorldScene {
     }
     this.instantiate(id, x, y, charIndex);
   }
+    z?: number,
 
   public move(
     id: string,
@@ -323,6 +329,7 @@ export class WorldScene {
     isWalking?: boolean,
     facingX?: number,
     facingY?: number,
+    z?: number,
   ): void {
     const view = this.players.get(id);
     if (!view) {
@@ -341,7 +348,9 @@ export class WorldScene {
     this.unknownMoveIds.delete(id);
     const dx = x - view.lastX;
     const dy = y - view.lastY;
-    view.yaw.position.set(x, -y, 0);
+    view.yaw.position.set(x, -y, z ?? 0);
+    const zScale = 1.0 + (z ?? 0) * 0.015; // Grow 15% for every 10 units of height
+    view.yaw.scale.setScalar(CHARACTER_SCALE * zScale);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
 
     // Rotation: prefer authoritative facing vector, fall back to delta movement
@@ -412,6 +421,31 @@ export class WorldScene {
       if (!alive.has(id)) {
         this.scene.remove(mesh);
         this.holeMeshes.delete(id);
+      }
+    }
+  }
+
+  public syncTrampolines(trampolines: TrampolineState[] = []): void {
+    const alive = new Set<string>();
+    for (const t of trampolines || []) {
+      alive.add(t.id);
+      let mesh = this.trampolineMeshes.get(t.id);
+      if (!mesh) {
+        const geom = new THREE.CircleGeometry(t.radius, 32);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff }); // Magenta to stand out
+        mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(t.x, -t.y, 0.05); // Above holes
+        this.scene.add(mesh);
+        this.trampolineMeshes.set(t.id, mesh);
+      } else {
+        mesh.position.set(t.x, -t.y, 0.05);
+      }
+    }
+
+    for (const [id, mesh] of this.trampolineMeshes) {
+      if (!alive.has(id)) {
+        this.scene.remove(mesh);
+        this.trampolineMeshes.delete(id);
       }
     }
   }
@@ -540,6 +574,10 @@ export class WorldScene {
       this.scene.remove(mesh);
     }
     this.holeMeshes.clear();
+    for (const mesh of this.trampolineMeshes.values()) {
+      this.scene.remove(mesh);
+    }
+    this.trampolineMeshes.clear();
     this.rangeIndicator.visible = false;
     this.landingMarker.visible = false;
   }
@@ -578,10 +616,10 @@ export class WorldScene {
   }
 
   /** Screen-space (Pixi overlay) position of a world point under the current camera */
-  public project(x: number, y: number): { sx: number; sy: number } {
+  public project(x: number, y: number, z: number = 0): { sx: number; sy: number } {
     return {
       sx: (x - this.focusX) * CAMERA_ZOOM + this.viewWidth / 2,
-      sy: (y - this.focusY) * CAMERA_ZOOM + this.viewHeight / 2,
+      sy: (y - z - this.focusY) * CAMERA_ZOOM + this.viewHeight / 2,
     };
   }
 

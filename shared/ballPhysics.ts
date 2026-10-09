@@ -21,7 +21,13 @@ import {
 } from "./constants";
 import { COURSE_ZONES, getTerrainPropertiesAt } from "./terrain";
 import type { TerrainZone } from "./terrain";
-import type { BallState, HoleState, PlayerState, Vector2 } from "./types";
+import type {
+  BallState,
+  HoleState,
+  PlayerState,
+  Vector2,
+  TrampolineState,
+} from "./types";
 
 /**
  * Golf ball physics and swing→ball interaction. Every function here is pure
@@ -239,11 +245,21 @@ export function stepBall(
   onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
+  trampolines?: Iterable<TrampolineState>,
 ): BallState {
   let remaining = dtSeconds;
   while (remaining > 1e-9 && !ball.resting) {
     const h = Math.min(BALL_SUBSTEP_SECONDS, remaining);
-    substep(ball, h, zones, players, onPlayerHit, holes, onHoleScored);
+    substep(
+      ball,
+      h,
+      zones,
+      players,
+      onPlayerHit,
+      holes,
+      onHoleScored,
+      trampolines,
+    );
     remaining -= h;
   }
   return ball;
@@ -265,6 +281,7 @@ function substep(
   onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
+  trampolines?: Iterable<TrampolineState>,
 ): void {
   // 1. Accumulate Forces (as acceleration)
   let ax = 0;
@@ -329,7 +346,21 @@ function substep(
 
   // 5. Constraints / Collisions
   if (ball.z <= 0) {
-    if (isAirborne) {
+    let trampolined = false;
+    if (trampolines) {
+      for (const tramp of trampolines) {
+        const dist = Math.hypot(ball.x - tramp.x, ball.y - tramp.y);
+        if (dist <= tramp.radius) {
+          ball.vz = tramp.bounceVelocity;
+          ball.z = 0.01; // Detach from ground
+          ball.resting = false;
+          trampolined = true;
+          break;
+        }
+      }
+    }
+
+    if (isAirborne && !trampolined) {
       ball.z = 0;
       if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
         const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);

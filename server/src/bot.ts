@@ -48,54 +48,20 @@ export interface BotSpawnOptions {
 }
 
 export const DEFAULT_BOT_SPAWNS: readonly BotSpawnOptions[] = [
-  // 2 golfers around Clubhouse / Practice Green
+  // 1 golfer around Clubhouse / Practice Green
   {
     name: "Bot Arnie",
     x: 1440,
     y: 1440,
     patrolRadius: 220,
   },
-  {
-    name: "Bot Tiger",
-    x: 1560,
-    y: 1540,
-    patrolRadius: 240,
-  },
 
-  // 2 golfers on Hole 1 (South Fairway & Green)
+  // 1 golfer on Hole 1 (South Fairway & Green)
   {
     name: "Bot Jack",
     x: 1500,
     y: 1950,
     patrolRadius: 280,
-  },
-  {
-    name: "Bot Rory",
-    x: 1500,
-    y: 2360,
-    patrolRadius: 160,
-  },
-
-  // 2 golfers on Hole 2 (East Fairway & Green)
-  {
-    name: "Bot Annika",
-    x: 1950,
-    y: 1500,
-    patrolRadius: 280,
-  },
-  {
-    name: "Bot Seve",
-    x: 2380,
-    y: 1500,
-    patrolRadius: 160,
-  },
-
-  // 1 golfer on Hole 3 (North Fairway)
-  {
-    name: "Bot Happy",
-    x: 1500,
-    y: 850,
-    patrolRadius: 300,
   },
 
   // 1 golfer on Hole 4 (West Fairway)
@@ -180,6 +146,7 @@ export function stepBot(
   dtSeconds: number,
   worldWidth: number = WORLD_WIDTH,
   worldHeight: number = WORLD_HEIGHT,
+  trampolines?: Iterable<import("../../shared/types").TrampolineState>,
 ): void {
   // If knocked down by a ball collision, don't move or make decisions
   if ((bot.state.knockdownTimer ?? 0) > 0) {
@@ -188,7 +155,7 @@ export function stepBot(
     bot.input.left = false;
     bot.input.right = false;
     bot.input.charging = false;
-    stepPlayer(bot.state, bot.input, dtSeconds);
+    stepPlayer(bot.state, bot.input, dtSeconds, trampolines);
     bot.pauseTimer = 1.0; // Pause briefly upon respawn
     return;
   }
@@ -201,7 +168,7 @@ export function stepBot(
     bot.input.left = false;
     bot.input.right = false;
     bot.input.charging = false;
-    stepPlayer(bot.state, bot.input, dtSeconds);
+    stepPlayer(bot.state, bot.input, dtSeconds, trampolines);
 
     if (bot.pauseTimer <= 0) {
       pickNewBotTarget(bot, worldWidth, worldHeight);
@@ -223,7 +190,7 @@ export function stepBot(
     bot.input.left = false;
     bot.input.right = false;
     bot.input.charging = false;
-    stepPlayer(bot.state, bot.input, dtSeconds);
+    stepPlayer(bot.state, bot.input, dtSeconds, trampolines);
     return;
   }
 
@@ -235,5 +202,5 @@ export function stepBot(
   bot.input.down = dy > DEADZONE;
   bot.input.charging = false;
 
-  stepPlayer(bot.state, bot.input, dtSeconds);
+  stepPlayer(bot.state, bot.input, dtSeconds, trampolines);
 }
