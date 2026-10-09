@@ -81,7 +81,6 @@ center.
 
 ## Known gaps
 
-- No automated tests (client or server).
-- No collision between players, no obstacles/goals/scoring.
+- No collision between players (currently players pass through one another).
+- Course features in development: golf holes/cups, terrain zones (bunkers, rough), and stroke scoring.
 - No player persistence — reconnecting gets a new UUID and respawns at the center.
-- `resolveWsUrl()` hardcodes the server port (3332); no env-based override.

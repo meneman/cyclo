@@ -27,9 +27,12 @@ card is a new invocation of this skill, not a continuation of this one.
 - File: `docs/vault/todo_kanban.md` (format of the
   community-archive/obsidian-kanban plugin).
 - Frontmatter contains `kanban-plugin: board`.
-- Each `## heading` (`todo`, `progress`, `waiting`, `done`) is a list.
-  `waiting` is only a parking spot for cards blocked in `progress` (see
-  step 8) — never a regular target.
+- Lists:
+  - `## backlog (human only)`: Exclusively for the human user to track rough ideas. AI agents must NEVER read, select, move, or process any card from or to this list.
+  - `## todo`: Open cards queued for implementation. AI agents only pick cards from here.
+  - `## progress`: Currently active card being worked on.
+  - `## waiting`: Parking spot for cards blocked in `progress` (see step 8) — never a regular target.
+  - `## done`: Completed cards (checked with `- [x]`).
 - Each line `- [ ] Card title` under a heading is a card; indented
   sub-bullets directly underneath belong to that card (the spec written by a
   prior `todo-intake-kanban` pass).
@@ -43,9 +46,10 @@ card is a new invocation of this skill, not a continuation of this one.
 ## Steps
 
 1. **Read `docs/vault/todo_kanban.md` in full.** Collect every open card
-   (`- [ ]`) in the `todo` list with its indented sub-bullets — those
-   sub-bullets are the spec, written by a prior `todo-intake-kanban` pass
-   specifically so this step doesn't need to re-ask the user anything.
+   (`- [ ]`) in the `todo` list (strictly ignoring `backlog (human only)`) with
+   its indented sub-bullets — those sub-bullets are the spec, written by a prior
+   `todo-intake-kanban` pass specifically so this step doesn't need to re-ask the
+   user anything.
 
 2. **Pick exactly one open card.** See "Deciding which card is next" below.
    State the pick and a one-line reason before starting work.
@@ -68,30 +72,30 @@ card is a new invocation of this skill, not a continuation of this one.
    that's already documented.
 
 6. **Implement the card completely**, following this repo's existing
-   conventions (frontend in `frontend/`: React 19 + Vite + TypeScript +
-   shadcn/ui + Tailwind CSS 4 + Radix; backend in `src/web/backend`:
-   Express on Node; root scripts orchestrate both, `frontend/` has its own
-   `package.json` with `dev`/`build`/`lint`) and the specifics the card's
-   sub-bullets already pinned down (edge cases, which files need plumbing
-   changes, which components/tokens to reuse, etc.). Don't quietly expand
-   scope beyond what the card specifies, and don't re-litigate a decision
-   the card already resolved.
+   conventions (client in `src/`: Three.js top-down 3D scene + PixiJS overlay
+   HUD/UI + Vite + TypeScript; authoritative server in `server/src/`: Bun
+   WebSocket server broadcasting state at 20Hz; shared logic in `shared/`:
+   simulation, ball physics, protocol, types, constants) and the specifics the
+   card's sub-bullets already pinned down (edge cases, which files need plumbing
+   changes, etc.). Don't quietly expand scope beyond what the card specifies,
+   and don't re-litigate a decision the card already resolved.
 
 7. **Verify before moving anything to done:**
-   - Run `npm test` — backend suite (node test runner over `test/`) green.
-   - If the change touches the frontend, also run `npm --prefix frontend
-     run build` (`tsc -b` + `vite build`) and `npm --prefix frontend run
-     lint` (`oxlint`); both must pass.
+   - Run `bun test` — automated test suite covering shared simulation, ball
+     physics, netcode protocol, roster and club tests must be green.
+   - Run `npm run lint` (`eslint .`) and `npm run build` (`eslint . && tsc && vite build`);
+     both must pass cleanly.
+   - Run `cd server && bun run tsc --noEmit` to ensure the server TypeScript compiles cleanly.
    - If the change touches a view/UI, don't test it yourself in a browser —
-     don't start `npm run dev` and don't use any `claude-in-chrome` tools.
+     don't start background dev servers and don't use any browser automation tools.
      Instead, **overwrite** `docs/local/MANUAL_TESTS.md` with a checklist
      for the user to work through by hand. Fully replace any prior content
      (it only ever covers the card this run just implemented, not a running
      history — that lives in the cards' `Erledigt` lines). Include:
      - A short header: the card's title and today's date, plus a note that
        the user needs to start `npm run dev` themselves before testing
-       (Backend on port `3000`, Vite dev server on port `5173`, opens
-       `http://localhost:5173`; `/api` calls are proxied to the backend).
+       (Server on port `3332`, Vite dev server on port `3331`, opens
+       `http://localhost:3331`; `/ws` is proxied to the backend).
      - Concrete `- [ ]` checklist points — which page/URL to open, what
        state/element to look at and how it should behave, and any edge cases
        the card's sub-bullets explicitly called out.
@@ -102,6 +106,7 @@ card is a new invocation of this skill, not a continuation of this one.
 
 8. **Move the card from `progress` to `done`**, matching the existing
    completed-card style:
+   - Change the checkbox from `- [ ]` to `- [x]` (`- [x] Card title`).
    - Keep the card's original title and sub-bullets as they were — don't
      rewrite the spec.
    - Append one indented sub-bullet starting with `Erledigt <today's date,

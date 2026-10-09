@@ -9,6 +9,8 @@ import {
   WORLD_WIDTH,
 } from "../../../../shared/constants";
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
+import { COURSE_ZONES } from "../../../../shared/terrain";
+import type { TerrainZone } from "../../../../shared/terrain";
 import type { PlayerState, HoleState } from "../../../../shared/types";
 import type { RenderBall } from "../../../net/BallPredictor";
 
@@ -24,17 +26,34 @@ import {
   updateGolfBallVisual,
 } from "./GolfBall";
 import { attachGolfClub, calculateGolfSwingPose } from "./GolfClub";
+import {
+  BLOOD_STAIN_ELEVATION,
+  createBloodStain,
+  disposeBloodStain,
+  disposeBloodStainResources,
+} from "./BloodStain";
 
 /** World-to-screen scale — how many screen px one world unit covers */
 const CAMERA_ZOOM = 3;
 /** World units covered by one repeating tile of the ground texture */
 const FIELD_TILE_SIZE = 80;
 const FIELD_TEXTURE_URL = `${import.meta.env.BASE_URL}textures/grass.png`;
-/**
- * Multiplied onto the grass texture — slightly below white with green kept
- * highest, so the field reads a little darker and richer green.
- */
-const FIELD_TINT = 0xb8ccb0;
+
+/** Rough (uncut natural grass) covering the base field */
+const ROUGH_TINT = 0x486b3e;
+/** Lush manicured grass for fairways */
+const FAIRWAY_TINT = 0x86c474;
+/** Radiant emerald green for putting greens */
+const GREEN_TINT = 0x3ec878;
+/** Outer collar fringe around greens */
+const GREEN_COLLAR_TINT = 0x5ab86e;
+/** Warm golden sand for bunkers */
+const BUNKER_TINT = 0xedd6a4;
+/** Darker lip for bunker edges */
+const BUNKER_LIP_TINT = 0xc2a875;
+/** Deep rough hazard patches */
+const ROUGH_PATCH_TINT = 0x3d5933;
+
 /** Out-of-bounds backdrop around the field */
 const BACKDROP_COLOR = 0x0b1020;
 /** Fallback marker color when a character template fails to load */
@@ -97,6 +116,8 @@ interface PlayerView {
   swingElapsed: number;
   swingPower: number;
   lastSwingSeq: number;
+  bloodStain: THREE.Group;
+  knockedDown: boolean;
 }
 
 /**
@@ -130,6 +151,8 @@ export class WorldScene {
   );
   private readonly fieldTexture: THREE.Texture;
   private readonly fieldMaterial: THREE.MeshStandardMaterial;
+  private readonly terrainMeshes: THREE.Mesh[] = [];
+  private readonly terrainTextures: THREE.Texture[] = [];
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
   private readonly rangeIndicator: THREE.Mesh;
@@ -175,14 +198,16 @@ export class WorldScene {
     );
     this.fieldMaterial = new THREE.MeshStandardMaterial({
       map: this.fieldTexture,
-      color: FIELD_TINT,
-      roughness: 0.9,
+      color: ROUGH_TINT,
+      roughness: 0.95,
       metalness: 0.0,
     });
 
     const field = new THREE.Mesh(this.fieldGeometry, this.fieldMaterial);
     field.position.set(WORLD_WIDTH / 2, -WORLD_HEIGHT / 2, -1);
     this.scene.add(field);
+
+    this.buildTerrainZones();
 
     this.rangeGeometry = new THREE.RingGeometry(
       HIT_RADIUS - 0.25,
@@ -317,6 +342,7 @@ export class WorldScene {
     const dx = x - view.lastX;
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, 0);
+    view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
 
     // Rotation: prefer authoritative facing vector, fall back to delta movement
     if (facingX !== undefined && facingY !== undefined) {
@@ -394,7 +420,7 @@ export class WorldScene {
     player: PlayerState | null,
     hittableBallAvailable: boolean,
   ): void {
-    if (!player) {
+    if (!player || (player.knockdownTimer ?? 0) > 0) {
       this.rangeIndicator.visible = false;
       this.landingMarker.visible = false;
       return;
@@ -417,6 +443,19 @@ export class WorldScene {
       this.landingMarker.visible = true;
     } else {
       this.landingMarker.visible = false;
+    }
+  }
+
+  /** Toggles between character model and blood stain on ground */
+  public setKnockdown(id: string, knockedDown: boolean): void {
+    const view = this.players.get(id);
+    if (!view) return;
+    if (view.knockedDown === knockedDown) return;
+    view.knockedDown = knockedDown;
+    view.yaw.visible = !knockedDown;
+    view.bloodStain.visible = knockedDown;
+    if (knockedDown) {
+      this.setWalking(view, false);
     }
   }
 
@@ -485,6 +524,8 @@ export class WorldScene {
     if (!view) return;
     view.mixer?.stopAllAction();
     this.scene.remove(view.yaw);
+    this.scene.remove(view.bloodStain);
+    disposeBloodStain(view.bloodStain);
     this.players.delete(id);
   }
 
@@ -561,7 +602,21 @@ export class WorldScene {
         if (child.material instanceof THREE.Material) child.material.dispose();
       }
     }
+    for (const mesh of this.terrainMeshes) {
+      mesh.geometry.dispose();
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((m) => m.dispose());
+      } else if (mesh.material instanceof THREE.Material) {
+        mesh.material.dispose();
+      }
+    }
+    this.terrainMeshes.length = 0;
+    for (const tex of this.terrainTextures) {
+      tex.dispose();
+    }
+    this.terrainTextures.length = 0;
     disposeGolfBallResources();
+    disposeBloodStainResources();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     const pixiCanvas = document.querySelector("#pixi-container canvas");
@@ -612,6 +667,12 @@ export class WorldScene {
     }
 
     this.scene.add(yaw);
+
+    const bloodStain = createBloodStain();
+    bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
+    bloodStain.visible = false;
+    this.scene.add(bloodStain);
+
     this.players.set(id, {
       yaw,
       mixer,
@@ -627,6 +688,8 @@ export class WorldScene {
       swingElapsed: 0,
       swingPower: 0,
       lastSwingSeq: 0,
+      bloodStain,
+      knockedDown: false,
     });
   }
 
@@ -673,5 +736,173 @@ export class WorldScene {
     this.focusY = focusY;
     this.camera.position.set(this.focusX, -this.focusY, CAMERA_HEIGHT);
     this.camera.lookAt(this.focusX, -this.focusY, 0);
+  }
+
+  private buildTerrainZones(): void {
+    for (const zone of COURSE_ZONES) {
+      switch (zone.type) {
+        case "fairway":
+          this.addFairwayZone(zone);
+          break;
+        case "green":
+          this.addGreenZone(zone);
+          break;
+        case "bunker":
+          this.addBunkerZone(zone);
+          break;
+        case "rough":
+          this.addRoughZone(zone);
+          break;
+      }
+    }
+  }
+
+  private addFairwayZone(zone: TerrainZone): void {
+    if (zone.shape === "rect") {
+      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
+      const tex = this.fieldTexture.clone();
+      tex.needsUpdate = true;
+      tex.repeat.set(
+        zone.width / FIELD_TILE_SIZE,
+        zone.height / FIELD_TILE_SIZE,
+      );
+      this.terrainTextures.push(tex);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex,
+        color: FAIRWAY_TINT,
+        roughness: 0.85,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.9);
+      if (zone.rotation) {
+        mesh.rotation.z = -zone.rotation;
+      }
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    } else {
+      const geom = new THREE.CircleGeometry(zone.radius, 48);
+      const mat = new THREE.MeshStandardMaterial({
+        color: FAIRWAY_TINT,
+        roughness: 0.85,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.9);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    }
+  }
+
+  private addGreenZone(zone: TerrainZone): void {
+    if (zone.shape === "circle") {
+      // Outer collar fringe
+      const collarGeom = new THREE.RingGeometry(
+        zone.radius,
+        zone.radius + 5,
+        48,
+      );
+      const collarMat = new THREE.MeshStandardMaterial({
+        color: GREEN_COLLAR_TINT,
+        roughness: 0.7,
+        side: THREE.DoubleSide,
+      });
+      const collarMesh = new THREE.Mesh(collarGeom, collarMat);
+      collarMesh.position.set(zone.x, -zone.y, -0.81);
+      this.scene.add(collarMesh);
+      this.terrainMeshes.push(collarMesh);
+
+      // Green putting surface
+      const geom = new THREE.CircleGeometry(zone.radius, 48);
+      const mat = new THREE.MeshStandardMaterial({
+        color: GREEN_TINT,
+        roughness: 0.55,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.8);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    } else {
+      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
+      const mat = new THREE.MeshStandardMaterial({
+        color: GREEN_TINT,
+        roughness: 0.55,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.8);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    }
+  }
+
+  private addBunkerZone(zone: TerrainZone): void {
+    if (zone.shape === "circle") {
+      // Darker lip rim
+      const lipGeom = new THREE.RingGeometry(
+        zone.radius - 2.5,
+        zone.radius,
+        48,
+      );
+      const lipMat = new THREE.MeshStandardMaterial({
+        color: BUNKER_LIP_TINT,
+        roughness: 0.98,
+        side: THREE.DoubleSide,
+      });
+      const lipMesh = new THREE.Mesh(lipGeom, lipMat);
+      lipMesh.position.set(zone.x, -zone.y, -0.69);
+      this.scene.add(lipMesh);
+      this.terrainMeshes.push(lipMesh);
+
+      // Silica sand circle
+      const geom = new THREE.CircleGeometry(zone.radius, 48);
+      const mat = new THREE.MeshStandardMaterial({
+        color: BUNKER_TINT,
+        roughness: 0.98,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.7);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    } else {
+      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
+      const mat = new THREE.MeshStandardMaterial({
+        color: BUNKER_TINT,
+        roughness: 0.98,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.7);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    }
+  }
+
+  private addRoughZone(zone: TerrainZone): void {
+    if (zone.shape === "circle") {
+      const geom = new THREE.CircleGeometry(zone.radius, 48);
+      const mat = new THREE.MeshStandardMaterial({
+        color: ROUGH_PATCH_TINT,
+        roughness: 0.95,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.85);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    } else {
+      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
+      const mat = new THREE.MeshStandardMaterial({
+        color: ROUGH_PATCH_TINT,
+        roughness: 0.95,
+        metalness: 0.0,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(zone.x, -zone.y, -0.85);
+      this.scene.add(mesh);
+      this.terrainMeshes.push(mesh);
+    }
   }
 }

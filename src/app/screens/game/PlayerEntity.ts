@@ -113,6 +113,11 @@ export class PlayerEntity extends Container {
     this.nameLabel.text = name;
   }
 
+  /** Hides name label and bubbles while despawned as a blood stain */
+  public setKnockedDown(knockedDown: boolean): void {
+    this.visible = !knockedDown;
+  }
+
   /** Shows a speech bubble above the player, replacing any that's still showing */
   public showChatBubble(text: string): void {
     this.hideChatBubble();
@@ -196,7 +201,11 @@ export class PlayerEntity extends Container {
     }
   }
 
-  private drawLoadBubble(power: number, isRelease: boolean, spin: number): void {
+  private drawLoadBubble(
+    power: number,
+    isRelease: boolean,
+    spin: number,
+  ): void {
     const clamped = Math.min(Math.max(power, 0), 1);
     const w = METER_WIDTH;
     const h = METER_HEIGHT;
@@ -232,13 +241,13 @@ export class PlayerEntity extends Container {
       : clamped >= 0.99
         ? "MAX"
         : `${Math.round(clamped * 100)}%`;
-        
+
     if (spin < -0.05) {
       text = `⟲ ` + text;
     } else if (spin > 0.05) {
       text = text + ` ⟳`;
     }
-    
+
     this.loadBubbleText.text = text;
   }
 

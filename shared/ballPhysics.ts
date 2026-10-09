@@ -1,23 +1,26 @@
 import {
-  BALL_BOUNCE_FRICTION,
   BALL_GRAVITY,
   BALL_LAUNCH_ANGLE,
   BALL_MAX_CARRY,
   BALL_MIN_BOUNCE_SPEED,
   BALL_MIN_CARRY,
+  BALL_PLAYER_RESTITUTION,
   BALL_POWER_EXP,
   BALL_RADIUS,
   BALL_REST_SPEED,
-  BALL_RESTITUTION,
-  BALL_ROLL_DECEL,
   BALL_SUBSTEP_SECONDS,
   BALL_WALL_RESTITUTION,
   HIT_OFFSET_FORWARD,
   HIT_OFFSET_RIGHT,
   HIT_RADIUS,
+  KNOCKDOWN_DURATION_SECONDS,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "./constants";
+import { COURSE_ZONES, getTerrainPropertiesAt } from "./terrain";
+import type { TerrainZone } from "./terrain";
 import type { BallState, PlayerState, Vector2 } from "./types";
 
 /**
@@ -114,10 +117,15 @@ export function launchVelocity(
 }
 
 /** Where a shot of `power` from `player` would first touch down (landing marker) */
-export function predictedLanding(player: PlayerState, power: number): Vector2 {
+export function predictedLanding(
+  player: PlayerState,
+  power: number,
+  zones: TerrainZone[] = COURSE_ZONES,
+): Vector2 {
   const f = facingOf(player);
   const origin = hitPoint(player);
-  const carry = carryForPower(power);
+  const terrain = getTerrainPropertiesAt(origin.x, origin.y, zones);
+  const carry = carryForPower(power) * terrain.carryMultiplier;
   return { x: origin.x + f.x * carry, y: origin.y + f.y * carry };
 }
 
@@ -127,8 +135,11 @@ export function strikeBall(
   hitter: PlayerState,
   power: number,
   spin: number = 0,
+  zones: TerrainZone[] = COURSE_ZONES,
 ): BallState {
-  const velocity = launchVelocity(facingOf(hitter), carryForPower(power));
+  const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
+  const carry = carryForPower(power) * terrain.carryMultiplier;
+  const velocity = launchVelocity(facingOf(hitter), carry);
   ball.vx = velocity.vx;
   ball.vy = velocity.vy;
   ball.vz = velocity.vz;
@@ -164,15 +175,72 @@ export function createBall(
 }
 
 /**
+ * Resolves a collision between a moving golf ball and a player.
+ * A hit occurs if:
+ * - The ball is in motion (!ball.resting)
+ * - The player is not already knocked down / despawned
+ * - The player is not the shooter (player.id !== ball.lastHitBy)
+ * - Vertical height ball.z <= PLAYER_HEIGHT (higher balls fly over head)
+ * - 2D distance <= PLAYER_RADIUS + BALL_RADIUS
+ *
+ * When hit:
+ * - Player enters knockdown / despawn state for KNOCKDOWN_DURATION_SECONDS
+ * - Ongoing swing / charge is cancelled
+ * - The ball bounces radially off the player's collision cylinder with BALL_PLAYER_RESTITUTION
+ *
+ * Mutates ball and player. Returns true if a collision occurred.
+ */
+export function resolveBallPlayerCollision(
+  ball: BallState,
+  player: PlayerState,
+): boolean {
+  if (ball.resting) return false;
+  if ((player.knockdownTimer ?? 0) > 0) return false;
+  if (ball.lastHitBy && ball.lastHitBy === player.id) return false;
+  if (ball.z > PLAYER_HEIGHT) return false;
+
+  const reach = PLAYER_RADIUS + BALL_RADIUS;
+  const dx = ball.x - player.x;
+  const dy = ball.y - player.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > reach) return false;
+
+  player.knockdownTimer = KNOCKDOWN_DURATION_SECONDS;
+  player.charge = 0;
+  player.impactTimer = 0;
+  player.impactDue = false;
+
+  const nx = dist > 1e-4 ? dx / dist : 1;
+  const ny = dist > 1e-4 ? dy / dist : 0;
+
+  ball.x = player.x + nx * reach;
+  ball.y = player.y + ny * reach;
+
+  const dot = ball.vx * nx + ball.vy * ny;
+  if (dot < 0) {
+    ball.vx -= (1 + BALL_PLAYER_RESTITUTION) * dot * nx;
+    ball.vy -= (1 + BALL_PLAYER_RESTITUTION) * dot * ny;
+    ball.vz *= 0.5;
+  }
+
+  return true;
+}
+
+/**
  * Advances a ball by `dtSeconds`, split into fixed BALL_SUBSTEP_SECONDS
  * steps so the result doesn't depend on the caller's frame/tick rate
  * (beyond the final partial step). Mutates and returns `ball`.
  */
-export function stepBall(ball: BallState, dtSeconds: number): BallState {
+export function stepBall(
+  ball: BallState,
+  dtSeconds: number,
+  zones: TerrainZone[] = COURSE_ZONES,
+  players?: Iterable<PlayerState>,
+): BallState {
   let remaining = dtSeconds;
   while (remaining > 1e-9 && !ball.resting) {
     const h = Math.min(BALL_SUBSTEP_SECONDS, remaining);
-    substep(ball, h);
+    substep(ball, h, zones, players);
     remaining -= h;
   }
   return ball;
@@ -180,13 +248,18 @@ export function stepBall(ball: BallState, dtSeconds: number): BallState {
 
 /**
  * Extensible physics solver using Semi-Implicit Euler integration.
- * 1. Accumulate forces (Gravity, Magnus effect, Rolling friction).
+ * 1. Accumulate forces (Gravity, Magnus effect, Rolling friction with terrain properties).
  * 2. Integrate velocity (v += a * dt).
  * 3. Check stopping conditions.
  * 4. Integrate position (p += v * dt).
- * 5. Resolve constraints (Bounces, Walls).
+ * 5. Resolve constraints (Bounces, Player collisions, Walls).
  */
-function substep(ball: BallState, h: number): void {
+function substep(
+  ball: BallState,
+  h: number,
+  zones: TerrainZone[] = COURSE_ZONES,
+  players?: Iterable<PlayerState>,
+): void {
   // 1. Accumulate Forces (as acceleration)
   let ax = 0;
   let ay = 0;
@@ -210,13 +283,14 @@ function substep(ball: BallState, h: number): void {
       }
     }
   } else {
-    // Rolling friction
+    // Rolling friction per terrain zone
+    const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
     const speed = Math.hypot(ball.vx, ball.vy);
     if (speed > 0) {
       const dirX = ball.vx / speed;
       const dirY = ball.vy / speed;
-      ax -= dirX * BALL_ROLL_DECEL;
-      ay -= dirY * BALL_ROLL_DECEL;
+      ax -= dirX * terrain.rollDecel;
+      ay -= dirY * terrain.rollDecel;
     }
   }
 
@@ -227,11 +301,9 @@ function substep(ball: BallState, h: number): void {
 
   // 3. Stop Condition Check (Rolling)
   if (!isAirborne) {
+    const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
     const newSpeed = Math.hypot(ball.vx, ball.vy);
-    // If friction reversed our velocity direction or we fell below rest speed, stop.
-    // (A simple check for reversing direction is if the new speed implies overshooting 0,
-    // but since we decelerate by constant amount, if a*h > old_speed, we reversed).
-    const accelMagnitude = BALL_ROLL_DECEL * h;
+    const accelMagnitude = terrain.rollDecel * h;
     const oldSpeed = Math.hypot(ball.vx - ax * h, ball.vy - ay * h);
     if (newSpeed <= BALL_REST_SPEED || accelMagnitude >= oldSpeed) {
       ball.vx = 0;
@@ -253,11 +325,18 @@ function substep(ball: BallState, h: number): void {
   if (ball.z <= 0 && isAirborne) {
     ball.z = 0;
     if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
-      ball.vz = -ball.vz * BALL_RESTITUTION;
-      ball.vx *= BALL_BOUNCE_FRICTION;
-      ball.vy *= BALL_BOUNCE_FRICTION;
+      const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
+      ball.vz = -ball.vz * terrain.restitution;
+      ball.vx *= terrain.bounceFriction;
+      ball.vy *= terrain.bounceFriction;
     } else {
       ball.vz = 0;
+    }
+  }
+
+  if (players) {
+    for (const player of players) {
+      resolveBallPlayerCollision(ball, player);
     }
   }
 

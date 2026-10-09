@@ -40,7 +40,7 @@ export function sanitizeInputState(value: unknown): InputState {
     typeof value === "object" && value !== null
       ? (value as Record<string, unknown>)
       : {};
-      
+
   const state: InputState = {
     up: Boolean(record.up),
     down: Boolean(record.down),

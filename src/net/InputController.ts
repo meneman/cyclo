@@ -1,7 +1,9 @@
 import type { InputState } from "../../shared/types";
 
+type MovementFlag = "up" | "down" | "left" | "right" | "charging";
+
 /** Keyboard movement mapping: W/Up, S/Down, A/Left, D/Right */
-const KEY_MAP: Record<string, keyof InputState> = {
+const KEY_MAP: Record<string, MovementFlag> = {
   KeyW: "up",
   ArrowUp: "up",
   KeyS: "down",
@@ -76,8 +78,8 @@ export class InputController {
       this.loggedFirstKey = true;
       console.info(`[cyclo:input] first movement key: ${event.code} -> ${key}`);
     }
-    if (!(this.state as any)[key]) {
-      (this.state as any)[key] = true;
+    if (!this.state[key]) {
+      this.state[key] = true;
       this.onChange?.(this.get());
     }
     event.preventDefault();
@@ -87,8 +89,8 @@ export class InputController {
     if (!this.enabled) return;
     const key = KEY_MAP[event.code];
     if (!key) return;
-    if ((this.state as any)[key]) {
-      (this.state as any)[key] = false;
+    if (this.state[key]) {
+      this.state[key] = false;
       this.onChange?.(this.get());
     }
     event.preventDefault();

@@ -16,6 +16,7 @@ import {
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import { stepPlayer } from "../../shared/simulation";
+import { COURSE_ZONES } from "../../shared/terrain";
 import type {
   BallState,
   InputState,
@@ -219,15 +220,16 @@ export class World {
             hittable,
             connection.state,
             connection.state.swingPower ?? 1,
-            (connection.state.swingSpin ?? 0) * 120 // Spin value maps to curve strength
+            (connection.state.swingSpin ?? 0) * 120, // Spin value maps to curve strength
           );
         }
       }
     }
 
+    const playerStates = Array.from(this.connections.values(), (c) => c.state);
     for (const ball of this.balls.values()) {
       if (!ball.resting) {
-        stepBall(ball, dtSeconds);
+        stepBall(ball, dtSeconds, COURSE_ZONES, playerStates);
       }
     }
 

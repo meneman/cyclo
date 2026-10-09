@@ -14,7 +14,7 @@ Wenn der User eine neue Karte in `todo`, `progress`, `waiting` oder `done` anleg
 ## Board-Format
 
 - Frontmatter enthält `kanban-plugin: board`.
-- Jede `## Überschrift` (`todo`, `progress`, `waiting`, `done`) ist eine Liste.
+- Jede `## Überschrift` (`backlog (human only)`, `todo`, `progress`, `waiting`, `done`) ist eine Liste. Die Liste `backlog (human only)` ist rein menschlich geführt — KI-Agenten dürfen darin keine Karten anlegen, bearbeiten oder verändern.
 - Jede Zeile `- [ ] Kartentitel` unter einer Überschrift ist eine Karte.
 - Der Block `%% kanban:settings ... %%` am Dateiende gehört zum Plugin und darf nicht verändert werden.
 

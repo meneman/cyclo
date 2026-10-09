@@ -6,6 +6,9 @@ import {
   BALL_MIN_CARRY,
   BALL_RADIUS,
   HIT_RADIUS,
+  KNOCKDOWN_DURATION_SECONDS,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
   WORLD_WIDTH,
 } from "./constants";
 import {
@@ -14,6 +17,7 @@ import {
   facingOf,
   findHittableBall,
   hitPoint,
+  resolveBallPlayerCollision,
   stepBall,
   strikeBall,
 } from "./ballPhysics";
@@ -167,5 +171,104 @@ describe("ballPhysics", () => {
     stepBall(ball, 0.1);
     assert.ok(ball.vx < 0, "Velocity X must reverse after hitting east wall");
     assert.ok(ball.x <= WORLD_WIDTH - BALL_RADIUS);
+  });
+
+  test("resolveBallPlayerCollision ignores shooter, resting balls, high balls, and knocked down players", () => {
+    const shooter: PlayerState = {
+      id: "shooter",
+      name: "Shooter",
+      x: 100,
+      y: 100,
+      color: 0,
+    };
+    const target: PlayerState = {
+      id: "target",
+      name: "Target",
+      x: 110,
+      y: 100,
+      color: 0,
+    };
+    const ball = createBall("b1", "shooter", 0, 110, 100);
+    ball.lastHitBy = "shooter";
+    ball.resting = false;
+    ball.vx = 50;
+
+    // 1. Shooter immunity
+    assert.equal(resolveBallPlayerCollision(ball, shooter), false);
+
+    // 2. Resting ball
+    ball.resting = true;
+    assert.equal(resolveBallPlayerCollision(ball, target), false);
+    ball.resting = false;
+
+    // 3. Ball flying over head (z > PLAYER_HEIGHT)
+    ball.z = PLAYER_HEIGHT + 5;
+    assert.equal(resolveBallPlayerCollision(ball, target), false);
+    ball.z = 10;
+
+    // 4. Target already knocked down
+    target.knockdownTimer = 1.0;
+    assert.equal(resolveBallPlayerCollision(ball, target), false);
+    target.knockdownTimer = 0;
+
+    // 5. Target too far away (distance > reach)
+    const farTarget: PlayerState = {
+      id: "far",
+      name: "Far",
+      x: 200,
+      y: 100,
+      color: 0,
+    };
+    assert.equal(resolveBallPlayerCollision(ball, farTarget), false);
+  });
+
+  test("resolveBallPlayerCollision knocks down target, cancels swing charge, and reflects velocity", () => {
+    const target: PlayerState = {
+      id: "target",
+      name: "Target",
+      x: 100,
+      y: 100,
+      color: 0,
+      charge: 0.7,
+      impactTimer: 0.1,
+      impactDue: true,
+    };
+    const ball = createBall("b1", "shooter", 0, 90, 100);
+    ball.lastHitBy = "shooter";
+    ball.resting = false;
+    ball.vx = 60; // Moving right toward target at x=100
+    ball.vy = 0;
+    ball.z = 5; // <= PLAYER_HEIGHT (29)
+
+    const collided = resolveBallPlayerCollision(ball, target);
+    assert.equal(collided, true);
+    assert.equal(target.knockdownTimer, KNOCKDOWN_DURATION_SECONDS);
+    assert.equal(target.charge, 0);
+    assert.equal(target.impactTimer, 0);
+    assert.equal(target.impactDue, false);
+
+    // Ball should be pushed outside target radius and vx reversed
+    assert.ok(ball.x < target.x - PLAYER_RADIUS);
+    assert.ok(ball.vx < 0, "Ball vx should reverse after bounce");
+  });
+
+  test("stepBall hits player on flight path and knocks them down", () => {
+    const target: PlayerState = {
+      id: "target",
+      name: "Target",
+      x: 350,
+      y: 200,
+      color: 0,
+    };
+    const ball = createBall("b1", "shooter", 0, 300, 200);
+    ball.lastHitBy = "shooter";
+    ball.resting = false;
+    ball.vx = 200; // moving toward x=350
+    ball.vy = 0;
+    ball.z = 10;
+
+    stepBall(ball, 0.5, undefined, [target]);
+    assert.equal(target.knockdownTimer, KNOCKDOWN_DURATION_SECONDS);
+    assert.ok(ball.vx < 0, "Ball should have bounced off target");
   });
 });

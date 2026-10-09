@@ -14,7 +14,7 @@ Wenn der User eine bestehende Karte von `todo` nach `progress` oder von `progres
 ## Board-Format
 
 - Frontmatter enthält `kanban-plugin: board`.
-- Jede `## Überschrift` (`todo`, `progress`, `waiting`, `done`) ist eine Liste. `waiting` parkt Karten, die in `progress` blockiert sind (siehe Schritt 3).
+- Jede `## Überschrift` (`backlog (human only)`, `todo`, `progress`, `waiting`, `done`) ist eine Liste. Die Liste `backlog (human only)` ist rein menschlich geführt — KI-Agenten dürfen niemals Karten in diese oder aus dieser Liste verschieben. `waiting` parkt Karten, die in `progress` blockiert sind (siehe Schritt 3).
 - Jede Zeile `- [ ] Kartentitel` unter einer Überschrift ist eine Karte.
 - Der Block `%% kanban:settings ... %%` am Dateiende gehört zum Plugin und darf nicht verändert werden.
 

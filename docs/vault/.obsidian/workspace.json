@@ -20,6 +20,7 @@
                     false,
                     false,
                     false,
+                    false,
                     false
                   ]
                 }
@@ -195,8 +196,9 @@
   },
   "active": "a2744e6a371df008",
   "lastOpenFiles": [
-    "README.md",
+    "What-is-cyclo.md",
     "todo_kanban.md",
+    "README.md",
     "Unbenannt.base",
     "2026-09-14.md"
   ]

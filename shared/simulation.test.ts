@@ -134,6 +134,40 @@ describe("stepPlayer", () => {
     assert.equal(player.impactTimer, 0);
     assert.equal(player.impactDue, true);
   });
+
+  test("blocks movement and charging while knocked down, and cancels active charge", () => {
+    const player = makePlayer();
+    player.charge = 0.8;
+    player.knockdownTimer = 1.5;
+
+    // Movement while knocked down
+    stepPlayer(player, RIGHT, 0.5);
+    assert.equal(player.x, 600); // no movement
+    assert.equal(player.charge, 0); // charge cancelled
+    assert.equal(player.knockdownTimer, 1.0); // timer ticked down
+
+    // Holding charge while knocked down
+    stepPlayer(
+      player,
+      { up: false, down: false, left: false, right: false, charging: true },
+      0.5,
+    );
+    assert.equal(player.charge, 0); // charge still not allowed
+    assert.equal(player.knockdownTimer, 0.5);
+  });
+
+  test("recovers input after knockdownTimer expires", () => {
+    const player = makePlayer();
+    player.knockdownTimer = 0.1;
+
+    stepPlayer(player, RIGHT, 0.1);
+    assert.equal(player.knockdownTimer, 0); // expired
+    assert.equal(player.x, 600); // stationary on expiration step
+
+    // Next step, player moves normally
+    stepPlayer(player, RIGHT, 0.1);
+    assert.equal(player.x, 600 + PLAYER_SPEED * 0.1);
+  });
 });
 
 describe("directionFromInput", () => {

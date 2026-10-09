@@ -63,15 +63,15 @@ re-derive scope or guess intent.
    board `docs/vault/todo_kanban.md`.** Follow the board format
    (see `kanban-edit-card`):
    - Frontmatter contains `kanban-plugin: board`.
-   - Each `## heading` (`todo`, `progress`, `waiting`, `done`) is a list.
+   - Each `## heading` is a list. The list `## backlog (human only)` is strictly human-managed; never add cards to or edit cards in `backlog (human only)`. New cards always go into `## todo`.
    - Each line `- [ ] Card title` under a heading is a card.
    - The `%% kanban:settings ... %%` block at the end of the file belongs
      to the plugin and must not be changed.
    - Match the existing card style:
      - New card: `- [ ] <short title>` at the end of the `todo` list (before
        the next `## heading` or before the `%% kanban:settings` block) — the
-       title should name the file/area it targets (e.g. "Lighthouse
-       `_page_card.html.erb`: ...").
+       title should name the feature/area it targets (e.g. "Golf hole & flag:
+       `shared/ballPhysics.ts`: ...").
      - Indented sub-bullets directly underneath the card line spelling out
        the resolved specifics: one bullet per clarified decision (scope,
        replace-vs-add, comparison basis, etc.), plus any

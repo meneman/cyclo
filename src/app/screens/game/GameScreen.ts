@@ -14,6 +14,7 @@ import {
 } from "../../../../shared/protocol";
 import type { ServerMessage } from "../../../../shared/protocol";
 import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
+import { getTerrainAt } from "../../../../shared/terrain";
 import type { InputState, PlayerState } from "../../../../shared/types";
 import { BallPredictor } from "../../../net/BallPredictor";
 import { resolveWsUrl } from "../../../net/config";
@@ -154,9 +155,12 @@ export class GameScreen extends Container {
     this.input.setEnabled(!this.chatBox.editing);
     const dtSeconds = ticker.deltaMS / 1000;
     const currentInput = this.input.get();
-    
+
     if (currentInput.charging && this.localState) {
-      const { sx, sy } = this.worldScene.project(this.localState.x, this.localState.y);
+      const { sx, sy } = this.worldScene.project(
+        this.localState.x,
+        this.localState.y,
+      );
       const mx = this.input.pointerX;
       const my = this.input.pointerY;
       const dx = mx - sx;
@@ -174,6 +178,9 @@ export class GameScreen extends Container {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
       stepPlayer(this.localState, currentInput, dtSeconds);
+      const localKnockedDown = (this.localState.knockdownTimer ?? 0) > 0;
+      this.worldScene.setKnockdown(this.localState.id, localKnockedDown);
+      this.entities.get(this.localState.id)?.setKnockedDown(localKnockedDown);
       this.worldScene.move(
         this.localState.id,
         this.localState.x,
@@ -205,6 +212,9 @@ export class GameScreen extends Container {
       if (id === this.localId) continue;
       const sample = this.interpolator.sample(id);
       if (sample) {
+        const remoteKnockedDown = (sample.knockdownTimer ?? 0) > 0;
+        this.worldScene.setKnockdown(id, remoteKnockedDown);
+        this.entities.get(id)?.setKnockedDown(remoteKnockedDown);
         this.worldScene.move(
           id,
           sample.x,
@@ -266,7 +276,8 @@ export class GameScreen extends Container {
     if (this.debugEnabled) {
       const x = this.localState?.x ?? 0;
       const y = this.localState?.y ?? 0;
-      this.debugText.text = `fps ${ticker.FPS.toFixed(0)} · x ${x.toFixed(1)} y ${y.toFixed(1)}`;
+      const terrain = this.localState ? getTerrainAt(x, y) : "none";
+      this.debugText.text = `fps ${ticker.FPS.toFixed(0)} · x ${x.toFixed(1)} y ${y.toFixed(1)} · [${terrain.toUpperCase()}]`;
     }
   }
 
@@ -472,6 +483,10 @@ export class GameScreen extends Container {
     if (!this.localState || !this.localId) return;
     const authoritative = players.find((p) => p.id === this.localId);
     if (!authoritative) return;
+
+    if (authoritative.knockdownTimer !== undefined) {
+      this.localState.knockdownTimer = authoritative.knockdownTimer;
+    }
 
     const dx = authoritative.x - this.localState.x;
     const dy = authoritative.y - this.localState.y;

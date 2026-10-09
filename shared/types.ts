@@ -55,6 +55,8 @@ export interface PlayerState {
    * resolves the hit and clears it before broadcasting.
    */
   impactDue?: boolean;
+  /** Seconds remaining in knockdown/despawn state after being hit by a ball */
+  knockdownTimer?: number;
 }
 
 export type PlayerSnapshot = PlayerState;
