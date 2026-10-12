@@ -176,4 +176,155 @@ describe("World item pickups", () => {
     assert.equal(player?.loadout?.club, "tailwind");
     assert.ok(Math.abs(world.getStats("p1").playerSpeedMult - 0.8) < 1e-9);
   });
+
+  test("Walking into a pickup records it in the inventory", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 1,
+      input: {
+        up: true,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    const mockServer = {
+      publish: () => {},
+    } as unknown as Server<SocketData>;
+    const testable = world as unknown as {
+      tick: (server: Server<SocketData>) => void;
+    };
+    for (let i = 0; i < 40; i++) {
+      testable.tick(mockServer);
+    }
+    const player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, ["tailwind"]);
+  });
+
+  test("Full inventory evicts the oldest item (FIFO) on walk-over pickup", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    const equips: Array<{ slot: string; itemId: string }> = [
+      { slot: "ball", itemId: "cannonball" },
+      { slot: "club", itemId: "driver-x" },
+      { slot: "club", itemId: "wrecker" },
+      { slot: "club", itemId: "sniper" },
+      { slot: "outfit", itemId: "tank-suit" },
+    ];
+    for (const { slot, itemId } of equips) {
+      world.handleMessage("p1", { type: "equipItem", slot, itemId });
+    }
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, [
+      "cannonball",
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+    ]);
+    // Walk up into the tailwind pickup: 6th distinct item evicts cannonball,
+    // which also unequips it from the ball slot.
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 1,
+      input: {
+        up: true,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    const mockServer = {
+      publish: () => {},
+    } as unknown as Server<SocketData>;
+    const testable = world as unknown as {
+      tick: (server: Server<SocketData>) => void;
+    };
+    for (let i = 0; i < 40; i++) {
+      testable.tick(mockServer);
+    }
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, [
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+      "tailwind",
+    ]);
+    assert.equal(player?.loadout?.club, "tailwind");
+    assert.equal(player?.loadout?.ball, undefined);
+  });
+
+  test("Menu equip beyond 5 evicts the oldest item", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    for (const itemId of [
+      "cannonball",
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+    ]) {
+      const slot =
+        itemId === "cannonball"
+          ? "ball"
+          : itemId === "tank-suit"
+            ? "outfit"
+            : "club";
+      world.handleMessage("p1", { type: "equipItem", slot, itemId });
+    }
+    world.handleMessage("p1", {
+      type: "equipItem",
+      slot: "ball",
+      itemId: "titan-ball",
+    });
+    const player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, [
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+      "titan-ball",
+    ]);
+    assert.equal(player?.loadout?.ball, "titan-ball");
+  });
+
+  test("Drop removes from inventory and unequips the slot", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    world.handleMessage("p1", {
+      type: "equipItem",
+      slot: "ball",
+      itemId: "cannonball",
+    });
+    world.handleMessage("p1", { type: "dropItem", itemId: "cannonball" });
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, []);
+    assert.equal(player?.loadout?.ball, undefined);
+    // Unknown and unowned drops are no-ops, never throw.
+    world.handleMessage("p1", { type: "dropItem", itemId: "nope" });
+    world.handleMessage("p1", { type: "dropItem", itemId: "driver-x" });
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, []);
+  });
 });

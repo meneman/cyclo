@@ -49,7 +49,7 @@ class StorageWrapper {
   }
 
   /** Set an object value to storage */
-  public setObject(key: string, value: Record<string, unknown>) {
+  public setObject(key: string, value: unknown) {
     this.setString(key, JSON.stringify(value));
   }
 }

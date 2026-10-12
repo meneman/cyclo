@@ -21,6 +21,7 @@ export const ClientMessageType = {
   Rematch: "rematch",
   EquipItem: "equipItem",
   UnequipItem: "unequipItem",
+  DropItem: "dropItem",
 } as const;
 export type ClientMessageType =
   (typeof ClientMessageType)[keyof typeof ClientMessageType];
@@ -56,7 +57,8 @@ export type ClientMessage =
       slot: string;
       itemId: string;
     }
-  | { type: typeof ClientMessageType.UnequipItem; slot: string };
+  | { type: typeof ClientMessageType.UnequipItem; slot: string }
+  | { type: typeof ClientMessageType.DropItem; itemId: string };
 
 /**
  * Coerces an untrusted value into an InputState — any truthy flag counts as
@@ -182,6 +184,16 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         return null;
       }
       return { type: ClientMessageType.UnequipItem, slot: record.slot };
+    }
+    case ClientMessageType.DropItem: {
+      if (
+        typeof record.itemId !== "string" ||
+        record.itemId.length === 0 ||
+        record.itemId.length > 64
+      ) {
+        return null;
+      }
+      return { type: ClientMessageType.DropItem, itemId: record.itemId };
     }
     default:
       return null;

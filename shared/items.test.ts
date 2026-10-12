@@ -6,9 +6,13 @@ import {
   BASE_STATS,
   ITEM_CATALOG,
   ITEM_PICKUP_SPAWNS,
+  MAX_INVENTORY_ITEMS,
   STAT_LIMITS,
+  addToInventoryFifo,
   getItem,
   isValidItemForSlot,
+  normalizeInventory,
+  removeFromInventory,
   resolveBallColor,
   resolvePlayerColor,
   resolveStats,
@@ -202,6 +206,62 @@ describe("new effect cards", () => {
     assert.equal(
       resolveBallPlayerCollision(grazing, near, undefined, minnowStats),
       false,
+    );
+  });
+});
+
+describe("inventory (max 5, FIFO)", () => {
+  test("max is 5", () => {
+    assert.equal(MAX_INVENTORY_ITEMS, 5);
+  });
+
+  test("normalize drops unknown ids, dedupes, and caps at 5", () => {
+    assert.deepEqual(normalizeInventory(undefined), []);
+    assert.deepEqual(normalizeInventory("nope"), []);
+    assert.deepEqual(
+      normalizeInventory(["driver-x", "nope", "driver-x", 42, null]),
+      ["driver-x"],
+    );
+    assert.deepEqual(
+      normalizeInventory([
+        "cannonball",
+        "marble-mini",
+        "curve-king",
+        "driver-x",
+        "wrecker",
+        "sniper",
+      ]),
+      ["cannonball", "marble-mini", "curve-king", "driver-x", "wrecker"],
+    );
+  });
+
+  test("fifo add keeps 5 max and evicts the oldest entry", () => {
+    const full = ["cannonball", "driver-x", "wrecker", "sniper", "tank-suit"];
+    const result = addToInventoryFifo(full, "titan-ball");
+    assert.deepEqual(result.inventory, [
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+      "titan-ball",
+    ]);
+    assert.equal(result.evicted, "cannonball");
+  });
+
+  test("fifo add is a no-op for owned and unknown ids", () => {
+    const inv = ["cannonball", "driver-x"];
+    assert.deepEqual(addToInventoryFifo(inv, "driver-x"), {
+      inventory: ["cannonball", "driver-x"],
+    });
+    assert.deepEqual(addToInventoryFifo(inv, "nope"), {
+      inventory: ["cannonball", "driver-x"],
+    });
+  });
+
+  test("remove drops the id", () => {
+    assert.deepEqual(
+      removeFromInventory(["cannonball", "driver-x"], "cannonball"),
+      ["driver-x"],
     );
   });
 });

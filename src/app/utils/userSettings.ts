@@ -1,3 +1,4 @@
+import { normalizeInventory } from "../../../shared/items";
 import type { PlayerLoadout } from "../../../shared/types";
 import { storage } from "../../engine/utils/storage";
 import { engine } from "../getEngine";
@@ -9,6 +10,7 @@ const KEY_VOLUME_SFX = "volume-sfx";
 const KEY_PLAYER_NAME = "player-name";
 const KEY_PLAYER_COLOR = "player-color";
 const KEY_PLAYER_LOADOUT = "player-loadout";
+const KEY_PLAYER_INVENTORY = "player-inventory";
 
 /**
  * Persistent user settings of volumes.
@@ -91,6 +93,17 @@ class UserSettings {
   /** Set the player's saved item loadout */
   public setPlayerLoadout(value: PlayerLoadout): void {
     storage.setObject(KEY_PLAYER_LOADOUT, { ...value });
+  }
+
+  /** Owned item ids (max 5, oldest first) — unknown ids are dropped on read */
+  public getPlayerInventory(): string[] {
+    const raw = storage.getObject(KEY_PLAYER_INVENTORY) as unknown;
+    return normalizeInventory(raw);
+  }
+
+  /** Set the player's saved item inventory */
+  public setPlayerInventory(value: readonly string[]): void {
+    storage.setObject(KEY_PLAYER_INVENTORY, [...value]);
   }
 }
 

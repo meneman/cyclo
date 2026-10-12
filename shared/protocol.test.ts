@@ -113,6 +113,24 @@ describe("parseClientMessage", () => {
     assert.ok(unequip !== null && unequip.type === "unequipItem");
   });
 
+  test("accepts well-formed drop messages and rejects malformed ones", () => {
+    const drop = parseClientMessage(
+      JSON.stringify({ type: "dropItem", itemId: "driver-x" }),
+    );
+    assert.ok(drop !== null && drop.type === "dropItem");
+    if (drop.type === "dropItem") {
+      assert.equal(drop.itemId, "driver-x");
+    }
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "dropItem" })),
+      null,
+    );
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "dropItem", itemId: "" })),
+      null,
+    );
+  });
+
   test("rejects malformed equip payloads instead of throwing into the sim", () => {
     assert.equal(
       parseClientMessage(JSON.stringify({ type: "equipItem", slot: "club" })),

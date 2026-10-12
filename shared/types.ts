@@ -43,6 +43,11 @@ export interface PlayerState {
   color: number;
   /** Ausgerüstete Items — der Server validiert, der Client löst Optik/Stats daraus auf */
   loadout?: PlayerLoadout;
+  /**
+   * Besitz-Inventar: distinct Item-IDs, max MAX_INVENTORY_ITEMS.
+   * Loadout ist immer eine Teilmenge (1 pro Slot) — der Server setzt das durch.
+   */
+  inventory?: string[];
   /** Current swing charge from 0 (not charging) to 1 (full charge) */
   charge?: number;
   /** Current spin charge from -1 (left) to 1 (right) */

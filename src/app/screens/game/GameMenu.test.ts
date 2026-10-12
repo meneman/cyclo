@@ -74,6 +74,14 @@ describe("GameMenu", () => {
     assert.equal(menu.isOpen, true);
   });
 
+  test("setInventory stores owned items without throwing", () => {
+    const menu = new GameMenu();
+    menu.open("local-1", PLAYER_COLORS[0], [], {}, ["titan-ball", "tailwind"]);
+    menu.setInventory(["titan-ball", "tailwind", "minnow"]);
+    menu.setLoadout({ club: "tailwind" });
+    assert.equal(menu.isOpen, true);
+  });
+
   test("resize centers the panel and fills backdrop", () => {
     const menu = new GameMenu();
     menu.resize(1920, 1080);

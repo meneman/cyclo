@@ -1,7 +1,12 @@
 import { Container, Graphics, Text } from "pixi.js";
 
 import { PLAYER_COLORS } from "../../../../shared/constants";
-import { ITEM_CATALOG } from "../../../../shared/items";
+import {
+  ITEM_CATALOG,
+  MAX_INVENTORY_ITEMS,
+  addToInventoryFifo,
+  removeFromInventory,
+} from "../../../../shared/items";
 import type { ItemSlot } from "../../../../shared/items";
 import type { PlayerLoadout, PlayerState } from "../../../../shared/types";
 import { userSettings } from "../../utils/userSettings";
@@ -35,6 +40,7 @@ export type MenuTab = "players" | "color" | "items" | "settings";
 export class GameMenu extends Container {
   public onSelectColor?: (color: number) => void;
   public onEquipItem?: (slot: ItemSlot, itemId: string | null) => void;
+  public onDropItem?: (itemId: string) => void;
   public onClose?: () => void;
 
   private _isOpen = false;
@@ -43,6 +49,7 @@ export class GameMenu extends Container {
   private localPlayerId: string | null = null;
   private playerList: PlayerState[] = [];
   private equippedLoadout: PlayerLoadout = {};
+  private ownedInventory: string[] = [];
 
   // Dummy setting states
   private dummyGraphics = "High";
@@ -98,6 +105,7 @@ export class GameMenu extends Container {
     localColor?: number,
     players?: PlayerState[],
     loadout?: PlayerLoadout,
+    inventory?: readonly string[],
   ): void {
     this._isOpen = true;
     this.visible = true;
@@ -105,6 +113,7 @@ export class GameMenu extends Container {
     if (localColor !== undefined) this.selectedColor = localColor;
     if (players !== undefined) this.playerList = [...players];
     if (loadout !== undefined) this.equippedLoadout = { ...loadout };
+    if (inventory !== undefined) this.ownedInventory = [...inventory];
     this.renderActiveTab();
   }
 
@@ -120,17 +129,26 @@ export class GameMenu extends Container {
     localColor?: number,
     players?: PlayerState[],
     loadout?: PlayerLoadout,
+    inventory?: readonly string[],
   ): void {
     if (this._isOpen) {
       this.close();
     } else {
-      this.open(localId, localColor, players, loadout);
+      this.open(localId, localColor, players, loadout, inventory);
     }
   }
 
   /** Aktualisiert die angezeigte Ausrüstung (z. B. nach Server-Sync) */
   public setLoadout(loadout: PlayerLoadout): void {
     this.equippedLoadout = { ...loadout };
+    if (this._isOpen && this.currentTab === "items") {
+      this.renderItemsTab();
+    }
+  }
+
+  /** Aktualisiert das angezeigte Inventar (z. B. nach Server-Sync) */
+  public setInventory(inventory: readonly string[]): void {
+    this.ownedInventory = [...inventory];
     if (this._isOpen && this.currentTab === "items") {
       this.renderItemsTab();
     }
@@ -711,7 +729,7 @@ export class GameMenu extends Container {
     this.contentArea.addChild(title);
 
     const subtitle = new Text({
-      text: "Server-authoritative: physics, damage, size & color apply on next swing.",
+      text: `Inventory ${this.ownedInventory.length}/${MAX_INVENTORY_ITEMS} — oldest drops out when full.`,
       style: {
         fontFamily: "monospace",
         fontSize: 12,
@@ -802,17 +820,72 @@ export class GameMenu extends Container {
 
       const slot: ItemSlot = item.slot;
       const itemId: string = item.id;
+      const isOwned = this.ownedInventory.includes(itemId);
       btn.on("pointertap", () => {
         if (this.equippedLoadout[slot] === itemId) {
           delete this.equippedLoadout[slot];
           this.onEquipItem?.(slot, null);
         } else {
+          // Mirror the server FIFO so the list never flickers on full.
+          const result = addToInventoryFifo(this.ownedInventory, itemId);
+          this.ownedInventory = result.inventory;
+          if (result.evicted !== undefined) {
+            for (const ownedSlot of ["ball", "club", "outfit"] as const) {
+              if (this.equippedLoadout[ownedSlot] === result.evicted) {
+                delete this.equippedLoadout[ownedSlot];
+              }
+            }
+          }
           this.equippedLoadout[slot] = itemId;
           this.onEquipItem?.(slot, itemId);
         }
         this.renderItemsTab();
       });
       row.addChild(btn);
+
+      if (isOwned) {
+        const dropBtn = new Container();
+        dropBtn.eventMode = "static";
+        dropBtn.cursor = "pointer";
+        const dropWidth = 72;
+        const dropHeight = 28;
+        dropBtn.position.set(
+          rowWidth - btnWidth - 10 - dropWidth - 8,
+          (rowHeight - dropHeight) / 2,
+        );
+
+        const dropBg = new Graphics();
+        dropBg.roundRect(0, 0, dropWidth, dropHeight, 6);
+        dropBg.fill({ color: 0x21262d });
+        dropBg.stroke({ color: 0x30363d, width: 1 });
+        dropBtn.addChild(dropBg);
+
+        const dropLabel = new Text({
+          text: "DROP",
+          style: {
+            fontFamily: "monospace",
+            fontSize: 12,
+            fontWeight: "bold",
+            fill: 0x8b949e,
+          },
+        });
+        dropLabel.anchor.set(0.5);
+        dropLabel.position.set(dropWidth / 2, dropHeight / 2);
+        dropBtn.addChild(dropLabel);
+
+        dropBtn.on("pointertap", () => {
+          this.ownedInventory = removeFromInventory(
+            this.ownedInventory,
+            itemId,
+          );
+          if (this.equippedLoadout[slot] === itemId) {
+            delete this.equippedLoadout[slot];
+          }
+          this.onDropItem?.(itemId);
+          this.renderItemsTab();
+        });
+        row.addChild(dropBtn);
+      }
 
       listContainer.addChild(row);
     });

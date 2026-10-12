@@ -24,8 +24,11 @@ import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import {
   BASE_STATS,
   ITEM_PICKUP_SPAWNS,
+  addToInventoryFifo,
   getItem,
   isValidItemForSlot,
+  normalizeInventory,
+  removeFromInventory,
   resolveBallColor,
   resolveStats,
 } from "../../shared/items";
@@ -203,6 +206,7 @@ export class World {
       frags: 0,
       holes: 0,
       loadout: {},
+      inventory: [],
     };
     this.refreshStats(id, state.loadout);
 
@@ -370,16 +374,35 @@ export class World {
           (slot === "ball" || slot === "club" || slot === "outfit") &&
           isValidItemForSlot(message.itemId, slot)
         ) {
+          // Menu equips also collect into the inventory — full means the
+          // oldest item drops out (FIFO), never a silent reject.
+          const owned = normalizeInventory(connection.state.inventory);
+          const { inventory, evicted } = addToInventoryFifo(
+            owned,
+            message.itemId,
+          );
           const loadout: PlayerLoadout = {
             ...connection.state.loadout,
             [slot]: message.itemId,
           };
+          if (evicted) {
+            const evictedDef = getItem(evicted);
+            if (evictedDef && loadout[evictedDef.slot] === evicted) {
+              delete loadout[evictedDef.slot];
+            }
+          }
+          connection.state.inventory = inventory;
           connection.state.loadout = loadout;
           this.refreshStats(id, loadout);
           this.syncOwnedBallColor(id);
           console.log(
             `[golfi:server] player ${id} equipped ${message.itemId} in ${slot}`,
           );
+          if (evicted) {
+            this.announce(
+              `${connection.state.name} dropped ${getItem(evicted)?.name ?? evicted} — inventory full!`,
+            );
+          }
         } else {
           console.debug(
             `[golfi:server] rejected equip from ${id} slot=${message.slot} item=${message.itemId}`,
@@ -400,6 +423,27 @@ export class World {
           this.syncOwnedBallColor(id);
           console.log(`[golfi:server] player ${id} unequipped ${slot}`);
         }
+        break;
+      }
+      case ClientMessageType.DropItem: {
+        const item = getItem(message.itemId);
+        if (!item) {
+          console.debug(
+            `[golfi:server] rejected drop from ${id} item=${message.itemId}`,
+          );
+          break;
+        }
+        const owned = normalizeInventory(connection.state.inventory);
+        if (!owned.includes(item.id)) break;
+        connection.state.inventory = removeFromInventory(owned, item.id);
+        if (connection.state.loadout?.[item.slot] === item.id) {
+          const loadout: PlayerLoadout = { ...connection.state.loadout };
+          delete loadout[item.slot];
+          connection.state.loadout = loadout;
+          this.refreshStats(id, loadout);
+          this.syncOwnedBallColor(id);
+        }
+        console.log(`[golfi:server] player ${id} dropped ${item.id}`);
         break;
       }
       case ClientMessageType.Chat: {
@@ -612,6 +656,7 @@ export class World {
       list.push({
         ...c.state,
         loadout: c.state.loadout ? { ...c.state.loadout } : undefined,
+        inventory: c.state.inventory ? [...c.state.inventory] : undefined,
       });
     }
     return list;
@@ -633,20 +678,37 @@ export class World {
     return Array.from(this.pickups.values(), (p) => ({ ...p }));
   }
 
-  /** Equips the pickup's item into its slot — a no-op if already equipped */
+  /**
+   * Equips the pickup's item into its slot — a no-op if already equipped.
+   * The pickup also collects into the inventory (max 5): when full, the
+   * oldest owned item drops out (FIFO) so walking over loot never rejects.
+   */
   private grantPickup(playerId: string, pickup: ItemPickupState): void {
     const connection = this.connections.get(playerId);
     const item = getItem(pickup.itemId);
     if (!connection || !item) return;
     if (connection.state.loadout?.[item.slot] === item.id) return;
+    const owned = normalizeInventory(connection.state.inventory);
+    const { inventory, evicted } = addToInventoryFifo(owned, item.id);
     const loadout: PlayerLoadout = {
       ...connection.state.loadout,
       [item.slot]: item.id,
     };
+    if (evicted) {
+      const evictedDef = getItem(evicted);
+      if (evictedDef && loadout[evictedDef.slot] === evicted) {
+        delete loadout[evictedDef.slot];
+      }
+    }
+    connection.state.inventory = inventory;
     connection.state.loadout = loadout;
     this.refreshStats(playerId, loadout);
     this.syncOwnedBallColor(playerId);
-    this.announce(`${connection.state.name} picked up ${item.name}!`);
+    this.announce(
+      evicted
+        ? `${connection.state.name} picked up ${item.name}! (${getItem(evicted)?.name ?? evicted} dropped — inventory full)`
+        : `${connection.state.name} picked up ${item.name}!`,
+    );
   }
 
   private sendTo(

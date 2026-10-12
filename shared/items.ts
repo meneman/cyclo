@@ -265,8 +265,76 @@ export const ITEM_PICKUP_SPAWNS: readonly ItemPickupSpawn[] = [
   { itemId: "minnow", dx: 140 },
 ];
 
+/** Max distinct items one player can own (inventory cap, walk-over + menu share it). */
+export const MAX_INVENTORY_ITEMS = 5;
+
 export function getItem(id: string): ItemDef | undefined {
   return ITEM_BY_ID.get(id);
+}
+
+/**
+ * Normalizes untrusted inventory data: keeps known item ids only, deduped,
+ * capped at MAX_INVENTORY_ITEMS. Never throws — server and client use it on
+ * every inbound snapshot so malformed state can't poison the game.
+ */
+export function normalizeInventory(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    if (!ITEM_BY_ID.has(entry) || seen.has(entry)) continue;
+    seen.add(entry);
+    out.push(entry);
+    if (out.length >= MAX_INVENTORY_ITEMS) break;
+  }
+  return out;
+}
+
+/** True when itemId is already owned or there is room to add it. */
+export function canAddToInventory(
+  inventory: readonly string[],
+  itemId: string,
+): boolean {
+  if (!ITEM_BY_ID.has(itemId)) return false;
+  return inventory.includes(itemId) || inventory.length < MAX_INVENTORY_ITEMS;
+}
+
+/** Adds itemId when known and room (or already owned) — returns a new array. */
+export function addToInventory(
+  inventory: readonly string[],
+  itemId: string,
+): string[] {
+  if (!ITEM_BY_ID.has(itemId)) return [...inventory];
+  if (inventory.includes(itemId)) return [...inventory];
+  if (inventory.length >= MAX_INVENTORY_ITEMS) return [...inventory];
+  return [...inventory, itemId];
+}
+
+/** Removes itemId — returns a new array. */
+export function removeFromInventory(
+  inventory: readonly string[],
+  itemId: string,
+): string[] {
+  return inventory.filter((id) => id !== itemId);
+}
+
+/**
+ * Adds itemId with FIFO eviction: unknown ids are ignored, already-owned ids
+ * are a no-op, and when full the OLDEST (first) entry is dropped to make room.
+ * Returns the new inventory plus the evicted id, if any.
+ */
+export function addToInventoryFifo(
+  inventory: readonly string[],
+  itemId: string,
+): { inventory: string[]; evicted?: string } {
+  if (!ITEM_BY_ID.has(itemId)) return { inventory: [...inventory] };
+  if (inventory.includes(itemId)) return { inventory: [...inventory] };
+  if (inventory.length < MAX_INVENTORY_ITEMS) {
+    return { inventory: [...inventory, itemId] };
+  }
+  const [evicted, ...rest] = inventory;
+  return { inventory: [...rest, itemId], evicted };
 }
 
 export function isValidItemForSlot(itemId: string, slot: ItemSlot): boolean {

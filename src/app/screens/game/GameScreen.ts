@@ -12,7 +12,10 @@ import {
   WORLD_WIDTH,
 } from "../../../../shared/constants";
 import {
+  addToInventoryFifo,
   getItem,
+  normalizeInventory,
+  removeFromInventory,
   resolvePlayerColor,
   resolveStats,
 } from "../../../../shared/items";
@@ -41,6 +44,7 @@ import { userSettings } from "../../utils/userSettings";
 import { ChatBox } from "./ChatBox";
 import { CountdownBanner } from "./CountdownBanner";
 import { GameMenu } from "./GameMenu";
+import { InventoryPanel } from "./InventoryPanel";
 import { KillBanner } from "./KillBanner";
 import { MatchEndOverlay } from "./MatchEndOverlay";
 import { MatchScoreboard } from "./MatchScoreboard";
@@ -83,6 +87,7 @@ export class GameScreen extends Container {
   private readonly debugText: Text;
   private readonly chatBox = new ChatBox();
   private readonly statsPanel = new StatsPanel();
+  private readonly inventoryPanel = new InventoryPanel();
   private readonly killBanner = new KillBanner();
   private readonly matchScoreboard = new MatchScoreboard();
   private readonly countdownBanner = new CountdownBanner();
@@ -105,6 +110,7 @@ export class GameScreen extends Container {
   private readonly entities = new Map<string, PlayerEntity>();
   private localId: string | null = null;
   private localState: PlayerState | null = null;
+  private lastPersistedInventory = "";
   private debugEnabled = false;
 
   private unsubscribeMessage: (() => void) | null = null;
@@ -142,6 +148,9 @@ export class GameScreen extends Container {
 
     this.statsPanel.zIndex = 90;
     this.addChild(this.statsPanel);
+
+    this.inventoryPanel.zIndex = 90;
+    this.addChild(this.inventoryPanel);
 
     this.matchScoreboard.zIndex = 85;
     this.addChild(this.matchScoreboard);
@@ -216,13 +225,54 @@ export class GameScreen extends Container {
         this.network.send({ type: ClientMessageType.UnequipItem, slot });
       }
       const next = { ...(this.localState?.loadout ?? {}) };
+      let inv = normalizeInventory(
+        this.localState?.inventory ?? userSettings.getPlayerInventory(),
+      );
       if (itemId) {
+        // Mirror the server FIFO so the HUD never flickers on full.
+        const result = addToInventoryFifo(inv, itemId);
+        inv = result.inventory;
+        if (result.evicted !== undefined) {
+          const evictedDef = getItem(result.evicted);
+          if (evictedDef && next[evictedDef.slot] === result.evicted) {
+            delete next[evictedDef.slot];
+          }
+        }
         next[slot] = itemId;
       } else {
         delete next[slot];
       }
-      if (this.localState) this.localState.loadout = next;
+      if (this.localState) {
+        this.localState.loadout = next;
+        this.localState.inventory = inv;
+      }
       userSettings.setPlayerLoadout(next);
+      this.persistInventory(inv);
+      this.gameMenu.setInventory(inv);
+      this.inventoryPanel.setInventory(inv, next);
+    };
+    this.gameMenu.onDropItem = (itemId) => {
+      this.network.send({ type: ClientMessageType.DropItem, itemId });
+      const def = getItem(itemId);
+      const inv = removeFromInventory(
+        normalizeInventory(
+          this.localState?.inventory ?? userSettings.getPlayerInventory(),
+        ),
+        itemId,
+      );
+      const next = { ...(this.localState?.loadout ?? {}) };
+      if (def && next[def.slot] === itemId) {
+        delete next[def.slot];
+      }
+      if (this.localState) {
+        this.localState.loadout = next;
+        this.localState.inventory = inv;
+      }
+      userSettings.setPlayerLoadout(next);
+      this.persistInventory(inv);
+      this.gameMenu.setLoadout(next);
+      this.gameMenu.setInventory(inv);
+      this.inventoryPanel.setInventory(inv, next);
     };
     this.addChild(this.gameMenu);
   }
@@ -282,6 +332,11 @@ export class GameScreen extends Container {
     this.matchEndOverlay.reposition(initialWidth, initialHeight);
     this.worldScene = new WorldScene();
     this.worldScene.setSize(initialWidth, initialHeight);
+    this.inventoryPanel.reposition(initialWidth, initialHeight, HUD_MARGIN);
+    this.inventoryPanel.setInventory(
+      userSettings.getPlayerInventory(),
+      userSettings.getPlayerLoadout(),
+    );
     this.input.onChange = (newInput) => {
       this.sendInput(newInput);
     };
@@ -488,6 +543,7 @@ export class GameScreen extends Container {
     this.chatBox.position.set(CHAT_MARGIN, CHAT_MARGIN);
     this.hud.position.set(width - HUD_MARGIN, 10);
     this.statsPanel.reposition(width, HUD_MARGIN, 36);
+    this.inventoryPanel.reposition(width, height, HUD_MARGIN);
     this.matchScoreboard.reposition(width);
     this.countdownBanner.reposition(width, height);
     this.matchEndOverlay.reposition(width, height);
@@ -520,6 +576,8 @@ export class GameScreen extends Container {
     this.viewportHeight = 0;
     this.localId = null;
     this.localState = null;
+    this.lastPersistedInventory = "";
+    this.lastMenuSyncKey = "";
     this.playerCount = 0;
     this.connected = false;
     this.debugEnabled = false;
@@ -543,7 +601,9 @@ export class GameScreen extends Container {
       this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
       list,
       this.localState?.loadout ?? userSettings.getPlayerLoadout(),
+      this.localState?.inventory ?? userSettings.getPlayerInventory(),
     );
+    this.lastMenuSyncKey = "";
     this.input.setEnabled(!this.chatBox.editing && !this.gameMenu.isOpen);
   }
 
@@ -608,25 +668,42 @@ export class GameScreen extends Container {
         }
         this.currentPlayers = message.players;
         this.playerCount = message.players.length;
-        // Reconnects get a fresh server-side loadout — re-equip persisted items.
+        // Reconnects get a fresh server-side inventory — restore spares
+        // first, then the equipped loadout, so the server FIFO rebuilds the
+        // same owned set without evicting anything.
         const savedLoadout = userSettings.getPlayerLoadout();
-        const savedSlots = (
-          Object.keys(savedLoadout) as Array<"ball" | "club" | "outfit">
-        ).filter((slot) => savedLoadout[slot] !== undefined);
-        if (savedSlots.length > 0) {
-          for (const slot of savedSlots) {
-            const itemId = savedLoadout[slot];
-            if (itemId) {
-              this.network.send({
-                type: ClientMessageType.EquipItem,
-                slot,
-                itemId,
-              });
-            }
-          }
-          if (this.localState) this.localState.loadout = { ...savedLoadout };
+        const savedInventory = userSettings.getPlayerInventory();
+        const loadoutIds = (["ball", "club", "outfit"] as const).map(
+          (slot) => savedLoadout[slot],
+        );
+        const spares = savedInventory.filter((id) => !loadoutIds.includes(id));
+        let restoredInv: string[] = [];
+        const restoreEquip = (itemId: string): void => {
+          const def = getItem(itemId);
+          if (!def) return;
+          this.network.send({
+            type: ClientMessageType.EquipItem,
+            slot: def.slot,
+            itemId,
+          });
+          restoredInv = addToInventoryFifo(restoredInv, itemId).inventory;
+        };
+        for (const itemId of spares) restoreEquip(itemId);
+        for (const slot of ["ball", "club", "outfit"] as const) {
+          const itemId = savedLoadout[slot];
+          if (itemId) restoreEquip(itemId);
         }
+        if (this.localState && restoredInv.length > 0) {
+          this.localState.loadout = { ...savedLoadout };
+          this.localState.inventory = restoredInv;
+        }
+        this.persistInventory(this.localState?.inventory ?? restoredInv);
         this.gameMenu.setLoadout(this.localState?.loadout ?? savedLoadout);
+        this.gameMenu.setInventory(this.localState?.inventory ?? restoredInv);
+        this.inventoryPanel.setInventory(
+          this.localState?.inventory ?? restoredInv,
+          this.localState?.loadout ?? savedLoadout,
+        );
         this.currentMatch = message.match;
         this.matchScoreboard.setMatch(message.match, this.localId);
         this.countdownBanner.setCountdown(message.match.countdownSeconds);
@@ -696,9 +773,7 @@ export class GameScreen extends Container {
               userSettings.getPlayerColor() ??
               undefined,
           );
-          if (this.localState?.loadout) {
-            this.gameMenu.setLoadout(this.localState.loadout);
-          }
+          this.syncMenuLoadout();
         }
         this.interpolator.push(message.players);
 
@@ -738,6 +813,14 @@ export class GameScreen extends Container {
             this.localState.loadout = player.loadout
               ? { ...player.loadout }
               : undefined;
+            // Walk-over pickups land here: mirror server truth into the HUD.
+            this.localState.inventory = normalizeInventory(player.inventory);
+            this.persistInventory(this.localState.inventory);
+            this.inventoryPanel.setInventory(
+              this.localState.inventory,
+              this.localState.loadout,
+            );
+            this.syncMenuLoadout();
           }
         }
         break;
@@ -805,6 +888,31 @@ export class GameScreen extends Container {
     }
   }
 
+  /** Persists the inventory only when it actually changed (ticks run at 20Hz) */
+  private persistInventory(inv: readonly string[]): void {
+    const key = inv.join(",");
+    if (key === this.lastPersistedInventory) return;
+    this.lastPersistedInventory = key;
+    userSettings.setPlayerInventory(inv);
+  }
+
+  /**
+   * Pushes loadout + inventory into the open menu, but only when something
+   * actually changed — State ticks run at 20Hz and a rebuild per tick would
+   * stutter the items list.
+   */
+  private lastMenuSyncKey = "";
+  private syncMenuLoadout(): void {
+    if (!this.gameMenu.isOpen) return;
+    const loadout = this.localState?.loadout ?? {};
+    const inv = this.localState?.inventory ?? [];
+    const key = `${loadout.ball ?? ""},${loadout.club ?? ""},${loadout.outfit ?? ""}|${inv.join(",")}`;
+    if (key === this.lastMenuSyncKey) return;
+    this.lastMenuSyncKey = key;
+    this.gameMenu.setLoadout(loadout);
+    this.gameMenu.setInventory(inv);
+  }
+
   private spawnEntity(snapshot: PlayerState): void {
     if (this.entities.has(snapshot.id)) return;
     console.debug(
@@ -832,6 +940,7 @@ export class GameScreen extends Container {
     this.ballPredictor.clear();
     this.clearPickupLabels();
     this.worldScene?.clear();
+    this.inventoryPanel.setInventory([], {});
     this.localState = null;
     this.currentPlayers = [];
   }
