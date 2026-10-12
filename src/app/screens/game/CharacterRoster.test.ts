@@ -73,9 +73,11 @@ describe("roster model files", () => {
    */
   for (const entry of CHARACTER_ROSTER) {
     test(`${entry.id} loads with sane units and Idle/Walk clips`, async () => {
-      const filename = entry.url.split("/").pop() ?? `${entry.id}.glb`;
+      const subpath = entry.url.includes("models/")
+        ? entry.url.slice(entry.url.indexOf("models/") + "models/".length)
+        : (entry.url.split("/").pop() ?? `${entry.id}.glb`);
       const url = new URL(
-        `../../../../public/models/${filename}`,
+        `../../../../public/models/${subpath}`,
         import.meta.url,
       );
       const buf = readFileSync(url);
@@ -106,9 +108,9 @@ describe("roster model files", () => {
 });
 
 describe("tuneCharacterMaterials", () => {
-  test("tunes male-casual shirt to sky-blue and converts to toon materials", async () => {
+  test("tunes mini-character colormap materials to MeshToonMaterial with cel-shading ramp", async () => {
     const url = new URL(
-      "../../../../public/models/male-casual.glb",
+      "../../../../public/models/mini-characters/glb/character-female-b.glb",
       import.meta.url,
     );
     const buf = readFileSync(url);
@@ -121,31 +123,16 @@ describe("tuneCharacterMaterials", () => {
       );
     });
 
-    tuneCharacterMaterials(gltf.scene, "male-casual");
+    tuneCharacterMaterials(gltf.scene, "mini-female");
 
-    let foundShirt = false;
     let toonCount = 0;
     gltf.scene.traverse((child) => {
-      if (
-        child instanceof Mesh &&
-        (child.material instanceof MeshToonMaterial ||
-          child.material instanceof MeshStandardMaterial)
-      ) {
-        if (child.material instanceof MeshToonMaterial) {
-          toonCount++;
-        }
-        if (child.material.name === "Shirt") {
-          foundShirt = true;
-          assert.equal(
-            child.material.color.getHex(),
-            0x0284c7,
-            "male-casual shirt must be sky-blue",
-          );
-        }
+      if (child instanceof Mesh && child.material instanceof MeshToonMaterial) {
+        toonCount++;
+        assert.equal(child.material.emissive.getHex(), 0x000000);
       }
     });
 
-    assert.ok(foundShirt, "male-casual should have a Shirt material");
     assert.ok(
       toonCount > 0,
       "materials should be converted to MeshToonMaterial",

@@ -28,16 +28,16 @@ export interface CharacterTemplate extends CharacterEntry {
 
 export const CHARACTER_ROSTER: readonly CharacterEntry[] = [
   {
-    id: "female-casual",
-    name: "Female Golfer",
-    url: `${import.meta.env.BASE_URL}models/female-casual.glb`,
-    scale: 0.06,
+    id: "mini-female",
+    name: "Mini Female",
+    url: `${import.meta.env.BASE_URL}models/mini-characters/glb/character-female-b.glb`,
+    scale: 39.0,
   },
   {
-    id: "male-casual",
-    name: "Male Golfer",
-    url: `${import.meta.env.BASE_URL}models/male-casual.glb`,
-    scale: 0.06,
+    id: "mini-male",
+    name: "Mini Male",
+    url: `${import.meta.env.BASE_URL}models/mini-characters/glb/character-male-a.glb`,
+    scale: 41.0,
   },
 ];
 
@@ -148,8 +148,10 @@ export function tuneCharacterMaterials(
           let color: Color;
           if (standardMat.name === "Shirt") {
             color = new Color(
-              characterId === "female-casual" ? 0xe05638 : 0x0284c7,
+              characterId.includes("female") ? 0xe05638 : 0x0284c7,
             );
+          } else if (standardMat.name === "colormap") {
+            color = new Color(0xffffff);
           } else {
             const cartoonHex = CARTOON_PART_COLORS[standardMat.name];
             if (cartoonHex !== undefined) {

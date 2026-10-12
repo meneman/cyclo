@@ -142,4 +142,29 @@ describe("GolfClub", () => {
     assert.ok(palm);
     assert.ok(palm?.getObjectByName("GolfClub"));
   });
+
+  test("attachGolfClub attaches properly to mini-character models", async () => {
+    const url = new URL(
+      "../../../../public/models/mini-characters/glb/character-male-a.glb",
+      import.meta.url,
+    );
+    const buffer = readFileSync(url);
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    );
+
+    const loader = new GLTFLoader();
+    const gltf = await loader.parseAsync(arrayBuffer, "");
+    const cloned = cloneSkinned(gltf.scene);
+
+    const attached = attachGolfClub(cloned);
+    assert.equal(attached, true);
+
+    const arm = cloned.getObjectByName("arm-right");
+    assert.ok(arm);
+    const club = arm?.getObjectByName("GolfClub");
+    assert.ok(club);
+    assert.equal(club.scale.x, 0.25);
+  });
 });

@@ -197,12 +197,17 @@ export function attachGolfClub(characterScene: THREE.Object3D): boolean {
   const palm =
     characterScene.getObjectByName("PalmR") ??
     characterScene.getObjectByName("Palm1R") ??
-    characterScene.getObjectByName("HandR");
+    characterScene.getObjectByName("HandR") ??
+    characterScene.getObjectByName("arm-right");
   if (!palm) {
     return false;
   }
   const club = createGolfClub();
-  if (palm.name !== "PalmR") {
+  if (palm.name === "arm-right") {
+    // Kenney mini-characters have 1.0 armature scale; fit club to character hand
+    club.scale.setScalar(0.25);
+    club.position.set(0, -0.15, 0.05);
+  } else if (palm.name !== "PalmR") {
     // Standard GLTF rigs like RobotExpressive use armature bone scaling of 100
     club.scale.setScalar(0.01);
   }
