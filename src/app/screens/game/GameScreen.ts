@@ -512,11 +512,7 @@ export class GameScreen extends Container {
       localStats,
     );
 
-    if (this.localState) {
-      this.worldScene.render(this.localState.x, this.localState.y, dtSeconds);
-    } else {
-      this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, dtSeconds);
-    }
+    this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, dtSeconds);
     this.positionPickupLabels();
 
     this.sendAccumulatorMs += ticker.deltaMS;

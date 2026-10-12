@@ -115,18 +115,19 @@ describe("ballPhysics", () => {
   });
 
   test("ball lands within 2% of carry distance, bounces, and comes to rest", () => {
-    const ball = createBall("b1", "p1", 0, 500, 500);
+    // Start on fairway at (320, 180) facing west so the ball stays in bounds with 1.0 carry multiplier
+    const ball = createBall("b1", "p1", 0, 320, 180);
     const player: PlayerState = {
       id: "p1",
       name: "p1",
-      x: 500,
-      y: 500,
+      x: 320,
+      y: 180,
       color: 0,
-      facingX: 1,
+      facingX: -1,
       facingY: 0,
     };
 
-    const targetCarry = carryForPower(1); // 300 units
+    const targetCarry = carryForPower(1);
     strikeBall(ball, player, 1);
     assert.equal(ball.hitSeq, 1);
     assert.equal(ball.lastHitBy, "p1");
@@ -150,7 +151,7 @@ describe("ballPhysics", () => {
     }
 
     assert.ok(hitGround, "Ball must contact ground");
-    const actualCarry = firstContactX - 500;
+    const actualCarry = 320 - firstContactX;
     const carryError = Math.abs(actualCarry - targetCarry) / targetCarry;
     assert.ok(
       carryError < 0.02,
@@ -158,12 +159,15 @@ describe("ballPhysics", () => {
     );
 
     // Ball should bounce further than carry, then rest
-    assert.ok(ball.x > firstContactX, "Ball must bounce and roll forward");
+    assert.ok(
+      ball.x < firstContactX,
+      "Ball must bounce and roll forward (west)",
+    );
     assert.ok(ball.resting, "Ball must eventually come to rest");
   });
 
   test("bounces off field boundaries", () => {
-    const ball = createBall("b1", "p1", 0, WORLD_WIDTH - 5, 500);
+    const ball = createBall("b1", "p1", 0, WORLD_WIDTH - 5, 180);
     ball.resting = false;
     ball.vx = 50; // Heading into east wall
     ball.vy = 0;
@@ -302,12 +306,12 @@ describe("ballPhysics", () => {
   test("stepBall detects a ball that lands on a hole from the air and triggers onHoleScored", () => {
     const hole: HoleState = {
       id: "hole-test",
-      x: 500,
-      y: 500,
+      x: 200,
+      y: 180,
       radius: 35,
     };
-    // Ball descending toward (500, 500)
-    const ball = createBall("b1", "shooter", 0, 500, 500);
+    // Ball descending toward (200, 180)
+    const ball = createBall("b1", "shooter", 0, 200, 180);
     ball.resting = false;
     ball.z = 10;
     ball.vz = -50; // falling down
@@ -333,12 +337,12 @@ describe("ballPhysics", () => {
   test("stepBall does not trigger hole point when ball is flying high above hole", () => {
     const hole: HoleState = {
       id: "hole-test",
-      x: 500,
-      y: 500,
+      x: 200,
+      y: 180,
       radius: 35,
     };
     // Ball flying high above hole at z=50, moving horizontally
-    const ball = createBall("b1", "shooter", 0, 480, 500);
+    const ball = createBall("b1", "shooter", 0, 180, 180);
     ball.resting = false;
     ball.z = 50;
     ball.vz = 0;

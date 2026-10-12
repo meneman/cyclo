@@ -9,6 +9,7 @@ import {
 } from "../../shared/constants";
 import type {
   BallState,
+  HoleState,
   ItemPickupState,
   PlayerSnapshot,
 } from "../../shared/types";
@@ -22,11 +23,13 @@ import { World } from "./world";
 function snapshots(world: World): {
   snapshot(): PlayerSnapshot[];
   ballSnapshot(): BallState[];
+  holeSnapshot(): HoleState[];
   pickupSnapshot(): ItemPickupState[];
 } {
   return world as unknown as {
     snapshot(): PlayerSnapshot[];
     ballSnapshot(): BallState[];
+    holeSnapshot(): HoleState[];
     pickupSnapshot(): ItemPickupState[];
   };
 }
@@ -55,11 +58,29 @@ function setPlayerPosition(
 }
 
 describe("World combat and hole scoring", () => {
-  test("World starts empty with holes and no bot players", () => {
+  test("World starts empty with exactly 3 smaller non-overlapping holes and no bot players", () => {
     const world = new World();
     assert.ok(world);
     const players = snapshots(world).snapshot();
     assert.equal(players.length, 0);
+    const holes = snapshots(world).holeSnapshot();
+    assert.equal(holes.length, 3);
+    for (const h of holes) {
+      assert.ok(h.radius <= 11, `Hole radius ${h.radius} must be <= 11`);
+      assert.ok(h.radius >= 7.5, `Hole radius ${h.radius} must be >= 7.5`);
+    }
+    for (let i = 0; i < holes.length; i++) {
+      for (let j = i + 1; j < holes.length; j++) {
+        const dist = Math.hypot(
+          holes[i].x - holes[j].x,
+          holes[i].y - holes[j].y,
+        );
+        assert.ok(
+          dist >= holes[i].radius + holes[j].radius,
+          `Holes ${holes[i].id} and ${holes[j].id} must not overlap (dist=${dist})`,
+        );
+      }
+    }
   });
 
   test("World snapshot contains only connected players", () => {

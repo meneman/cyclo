@@ -147,66 +147,23 @@ describe("terrain", () => {
     assert.equal(getTerrainAt(500, 500, testZones), DEFAULT_TERRAIN);
   });
 
-  test("COURSE_ZONES layout correctly identifies key landmark locations", () => {
-    assert.ok(COURSE_ZONES.length > 0, "Course layout must contain zones");
+  test("COURSE_ZONES is empty and entire arena defaults to normal terrain", () => {
+    assert.equal(COURSE_ZONES.length, 0, "No sand or grass zones remain");
 
-    // Spawn hub center (750, 750) is on Fairway
-    assert.equal(getTerrainAt(750, 750), "fairway");
-    assert.equal(getTerrainPropertiesAt(750, 750).type, "fairway");
-
-    // Practice green near hub (690, 690) is Green
-    assert.equal(getTerrainAt(690, 690), "green");
-    assert.equal(getTerrainPropertiesAt(690, 690).type, "green");
-
-    // Practice bunker near hub (810, 810) is Bunker
-    assert.equal(getTerrainAt(810, 810), "bunker");
-    assert.equal(getTerrainPropertiesAt(810, 810).type, "bunker");
-
-    // Hole 1 Green (750, 1200) is Green
-    assert.equal(getTerrainAt(750, 1200), "green");
-
-    // Hole 1 fairway bunker (820, 1000) is Bunker
-    assert.equal(getTerrainAt(820, 1000), "bunker");
-
-    // Far outside course corridor (e.g. 100, 1450) is Rough
-    assert.equal(getTerrainAt(100, 1450), "rough");
-    assert.equal(getTerrainPropertiesAt(100, 1450).type, "rough");
+    // All landmark coordinates return default normal terrain
+    assert.equal(getTerrainAt(320, 180), DEFAULT_TERRAIN);
+    assert.equal(getTerrainPropertiesAt(320, 180).carryMultiplier, 1.0);
+    assert.equal(getTerrainAt(90, 180), DEFAULT_TERRAIN);
+    assert.equal(getTerrainAt(20, 20), DEFAULT_TERRAIN);
   });
 
-  test("compact course fits inside the 1500 world with few bunkers", () => {
-    assert.equal(WORLD_WIDTH, 1500);
-    assert.equal(WORLD_HEIGHT, 1500);
-    for (const zone of COURSE_ZONES) {
-      if (zone.shape === "circle") {
-        assert.ok(zone.x - zone.radius >= 0, `${zone.id} inside west bound`);
-        assert.ok(
-          zone.x + zone.radius <= WORLD_WIDTH,
-          `${zone.id} inside east bound`,
-        );
-        assert.ok(zone.y - zone.radius >= 0, `${zone.id} inside north bound`);
-        assert.ok(
-          zone.y + zone.radius <= WORLD_HEIGHT,
-          `${zone.id} inside south bound`,
-        );
-      } else {
-        const half = Math.hypot(zone.width, zone.height) / 2;
-        assert.ok(zone.x - half >= 0, `${zone.id} inside west bound`);
-        assert.ok(zone.x + half <= WORLD_WIDTH, `${zone.id} inside east bound`);
-        assert.ok(zone.y - half >= 0, `${zone.id} inside north bound`);
-        assert.ok(
-          zone.y + half <= WORLD_HEIGHT,
-          `${zone.id} inside south bound`,
-        );
-      }
-    }
-    const bunkers = COURSE_ZONES.filter((zone) => zone.type === "bunker");
-    assert.ok(
-      bunkers.length <= 6,
-      `Course must stay low-obstacle (found ${bunkers.length} bunkers)`,
-    );
+  test("arena bounds are 640x360 (16:9 HD)", () => {
+    assert.equal(WORLD_WIDTH, 640);
+    assert.equal(WORLD_HEIGHT, 360);
+    assert.equal(COURSE_ZONES.length, 0);
   });
 
-  test("strikeBall applies reduced carry penalty when hitting from Rough and Bunker", () => {
+  test("strikeBall applies reduced carry penalty when hitting from Rough and Bunker zones", () => {
     const hitter: PlayerState = {
       id: "p1",
       name: "P1",
@@ -217,22 +174,48 @@ describe("terrain", () => {
       facingY: 0,
     };
 
+    const testZones: TerrainZone[] = [
+      {
+        id: "test-fairway",
+        type: "fairway",
+        shape: "circle",
+        x: 100,
+        y: 100,
+        radius: 30,
+      },
+      {
+        id: "test-rough",
+        type: "rough",
+        shape: "circle",
+        x: 200,
+        y: 100,
+        radius: 30,
+      },
+      {
+        id: "test-bunker",
+        type: "bunker",
+        shape: "circle",
+        x: 300,
+        y: 100,
+        radius: 30,
+      },
+    ];
+
     const power = 1.0;
 
-    // Shot from Fairway
-    const fairwayBall = createBall("b-fairway", "p1", 0, 750, 750);
-    strikeBall(fairwayBall, hitter, power);
-    // vx is horizontal launch speed
+    // Shot from Fairway zone
+    const fairwayBall = createBall("b-fairway", "p1", 0, 100, 100);
+    strikeBall(fairwayBall, hitter, power, 0, testZones);
     const fairwayVx = fairwayBall.vx;
 
-    // Shot from Rough (using custom zone or out of bounds rough)
-    const roughBall = createBall("b-rough", "p1", 0, 100, 1450);
-    strikeBall(roughBall, hitter, power);
+    // Shot from Rough zone
+    const roughBall = createBall("b-rough", "p1", 0, 200, 100);
+    strikeBall(roughBall, hitter, power, 0, testZones);
     const roughVx = roughBall.vx;
 
-    // Shot from Sand Bunker
-    const bunkerBall = createBall("b-bunker", "p1", 0, 810, 810);
-    strikeBall(bunkerBall, hitter, power);
+    // Shot from Sand Bunker zone
+    const bunkerBall = createBall("b-bunker", "p1", 0, 300, 100);
+    strikeBall(bunkerBall, hitter, power, 0, testZones);
     const bunkerVx = bunkerBall.vx;
 
     // Carry ratio = (roughVx / fairwayVx)^2 since carry is proportional to v^2
@@ -256,7 +239,7 @@ describe("terrain", () => {
         type: "green",
         shape: "rect",
         x: 0,
-        y: 100,
+        y: 50,
         width: 1000,
         height: 50,
       },
@@ -265,7 +248,7 @@ describe("terrain", () => {
         type: "fairway",
         shape: "rect",
         x: 0,
-        y: 200,
+        y: 120,
         width: 1000,
         height: 50,
       },
@@ -274,7 +257,7 @@ describe("terrain", () => {
         type: "rough",
         shape: "rect",
         x: 0,
-        y: 300,
+        y: 190,
         width: 1000,
         height: 50,
       },
@@ -283,7 +266,7 @@ describe("terrain", () => {
         type: "bunker",
         shape: "rect",
         x: 0,
-        y: 400,
+        y: 260,
         width: 1000,
         height: 50,
       },
@@ -305,10 +288,10 @@ describe("terrain", () => {
       return ball.x;
     }
 
-    const distGreen = runRoll(100);
-    const distFairway = runRoll(200);
-    const distRough = runRoll(300);
-    const distBunker = runRoll(400);
+    const distGreen = runRoll(50);
+    const distFairway = runRoll(120);
+    const distRough = runRoll(190);
+    const distBunker = runRoll(260);
 
     assert.ok(
       distGreen > distFairway,

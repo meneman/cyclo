@@ -13,8 +13,7 @@ import {
 } from "../../../../shared/constants";
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
 import { getItem, type EffectiveStats } from "../../../../shared/items";
-import { COURSE_ZONES } from "../../../../shared/terrain";
-import type { TerrainZone } from "../../../../shared/terrain";
+
 import type {
   PlayerState,
   HoleState,
@@ -42,29 +41,17 @@ import {
   disposeBloodStainResources,
 } from "./BloodStain";
 
-/** World-to-screen scale — how many screen px one world unit covers */
+/** World-to-screen scale — how many screen px one world unit covers (1920 / 640 = 3) */
 const CAMERA_ZOOM = 3;
 /** World units covered by one repeating tile of the ground texture */
 const FIELD_TILE_SIZE = 80;
 
 export interface CourtTheme {
-  /** Rough (uncut natural grass) covering the base field */
+  /** Ground base tint, multiplied by fieldTextureUrl */
   roughTint: number;
-  /** Manicured grass for fairways */
-  fairwayTint: number;
-  /** Putting green surface */
-  greenTint: number;
-  /** Outer collar fringe around greens */
-  greenCollarTint: number;
-  /** Bunker fill (sand in classic, crushed stone when gray) */
-  bunkerTint: number;
-  /** Darker lip for bunker edges */
-  bunkerLipTint: number;
-  /** Deep rough hazard patches */
-  roughPatchTint: number;
   /** Out-of-bounds backdrop around the field */
   backdrop: number;
-  /** Ground detail texture, multiplied by roughTint/fairwayTint */
+  /** Ground detail texture */
   fieldTextureUrl: string;
   /** Cool dimmed sun for dark themes, full warm sun for classic */
   sunIntensity: number;
@@ -74,15 +61,39 @@ export interface CourtTheme {
 }
 
 export const COURT_THEMES = {
+  /** Rocky terrain — natural rocky ground using the 4K texture set */
+  rockyTerrain: {
+    roughTint: 0xffffff,
+    backdrop: 0x0b1020,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/rocky_terrain_02/textures/rocky_terrain_02_diff_4k.jpg`,
+    sunIntensity: 1.5,
+    sunColor: 0xffffff,
+    hemiIntensity: 1.0,
+    hemiGroundColor: 0x1a2b1a,
+  },
   /** Original bright daytime look */
   classic: {
     roughTint: 0x486b3e,
-    fairwayTint: 0x86c474,
-    greenTint: 0x3ec878,
-    greenCollarTint: 0x5ab86e,
-    bunkerTint: 0xedd6a4,
-    bunkerLipTint: 0xc2a875,
-    roughPatchTint: 0x3d5933,
+    backdrop: 0x0b1020,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/rocky_terrain_02/textures/rocky_terrain_02_diff_4k.jpg`,
+    sunIntensity: 1.5,
+    sunColor: 0xffffff,
+    hemiIntensity: 1.0,
+    hemiGroundColor: 0x1a2b1a,
+  },
+  /** Variant A — darker court */
+  midnightMoss: {
+    roughTint: 0x1f3326,
+    backdrop: 0x06090c,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/rocky_terrain_02/textures/rocky_terrain_02_diff_4k.jpg`,
+    sunIntensity: 1.0,
+    sunColor: 0xdfe8ff,
+    hemiIntensity: 0.55,
+    hemiGroundColor: 0x0e1512,
+  },
+  /** Legacy grass texture look */
+  classicGrass: {
+    roughTint: 0x486b3e,
     backdrop: 0x0b1020,
     fieldTextureUrl: `${import.meta.env.BASE_URL}textures/grass.png`,
     sunIntensity: 1.5,
@@ -90,28 +101,12 @@ export const COURT_THEMES = {
     hemiIntensity: 1.0,
     hemiGroundColor: 0x1a2b1a,
   },
-  /** Variant A — darker court: dark moss greens + slate-gray bunkers */
-  midnightMoss: {
-    roughTint: 0x1f3326,
-    fairwayTint: 0x2e4a38,
-    greenTint: 0x2f6b4e,
-    greenCollarTint: 0x274434,
-    bunkerTint: 0x8b9096,
-    bunkerLipTint: 0x54595f,
-    roughPatchTint: 0x15211a,
-    backdrop: 0x06090c,
-    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/grass.png`,
-    sunIntensity: 1.0,
-    sunColor: 0xdfe8ff,
-    hemiIntensity: 0.55,
-    hemiGroundColor: 0x0e1512,
-  },
 } satisfies Record<string, CourtTheme>;
 
 export type CourtThemeName = keyof typeof COURT_THEMES;
 
-/** Flip between "classic" and "midnightMoss" to compare texture styles live. */
-export const ACTIVE_COURT_THEME: CourtThemeName = "midnightMoss";
+/** Active ground and lighting theme */
+export const ACTIVE_COURT_THEME: CourtThemeName = "rockyTerrain";
 
 const THEME: CourtTheme = COURT_THEMES[ACTIVE_COURT_THEME];
 /** Fallback marker color when a character template fails to load */
@@ -161,7 +156,7 @@ export const CENTRAL_LIGHT_INTENSITY = 30;
 /** Warm tint for the visible pool of light on the ground at map center */
 export const LIGHT_POOL_COLOR = 0xffdf9e;
 /** Radius of the visible light pool in world units */
-export const LIGHT_POOL_RADIUS = 550;
+export const LIGHT_POOL_RADIUS = 250;
 /** Peak brightness of the light pool (additive, fades to the edges) */
 export const LIGHT_POOL_OPACITY = 0.55;
 /** Pool sits above terrain but below shadows/indicators so both read */
@@ -324,8 +319,7 @@ export class WorldScene {
   );
   private readonly fieldTexture: THREE.Texture;
   private readonly fieldMaterial: THREE.MeshStandardMaterial;
-  private readonly terrainMeshes: THREE.Mesh[] = [];
-  private readonly terrainTextures: THREE.Texture[] = [];
+
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
   private readonly pickupMeshes = new Map<string, THREE.Mesh>();
@@ -358,7 +352,7 @@ export class WorldScene {
       document.body;
     mountContainer.appendChild(canvas);
 
-    this.scene.background = new THREE.Color(THEME.backdrop);
+    this.scene.background = new THREE.Color(0x000000);
     this.scene.add(
       new THREE.HemisphereLight(
         0xffffff,
@@ -407,6 +401,7 @@ export class WorldScene {
     this.scene.add(this.lightPool);
 
     this.fieldTexture = new THREE.TextureLoader().load(THEME.fieldTextureUrl);
+    this.fieldTexture.colorSpace = THREE.SRGBColorSpace;
     this.fieldTexture.wrapS = THREE.RepeatWrapping;
     this.fieldTexture.wrapT = THREE.RepeatWrapping;
     this.fieldTexture.repeat.set(
@@ -423,8 +418,6 @@ export class WorldScene {
     const field = new THREE.Mesh(this.fieldGeometry, this.fieldMaterial);
     field.position.set(WORLD_WIDTH / 2, -WORLD_HEIGHT / 2, -1);
     this.scene.add(field);
-
-    this.buildTerrainZones();
 
     this.rangeGeometry = new THREE.RingGeometry(
       HIT_RADIUS - 0.25,
@@ -465,7 +458,7 @@ export class WorldScene {
 
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1000);
     this.camera.up.set(0, 0, 1);
-    this.updateCamera(this.focusX, this.focusY);
+    this.updateCamera();
     console.info(
       `[golfi:scene] created: field ${WORLD_WIDTH}x${WORLD_HEIGHT}, camera near=${this.camera.near} far=${this.camera.far} z=${this.camera.position.z} zoom=${CAMERA_ZOOM} charScale=${CHARACTER_SCALE}, waiting for character templates`,
     );
@@ -519,6 +512,7 @@ export class WorldScene {
     this.camera.top = height / 2 / CAMERA_ZOOM;
     this.camera.bottom = -height / 2 / CAMERA_ZOOM;
     this.camera.updateProjectionMatrix();
+    this.updateCamera();
   }
 
   public spawn(id: string, x: number, y: number, color?: number): void {
@@ -707,7 +701,7 @@ export class WorldScene {
       const landing = predictedLanding(
         player,
         player.charge ?? 0,
-        COURSE_ZONES,
+        undefined,
         stats,
       );
       this.landingMarker.position.set(landing.x, -landing.y, 0.03);
@@ -826,12 +820,11 @@ export class WorldScene {
   }
 
   /**
-   * Advances animations, centers the follow-camera exactly on the focus
-   * point, and renders. The focus is the predicted local player, so they
-   * stay in the middle of their own viewport while the viewbox moves.
+   * Advances animations and renders the static world scene.
+   * The camera stands still at the world center.
    */
-  public render(focusX: number, focusY: number, dtSeconds: number): void {
-    this.updateCamera(focusX, focusY);
+  public render(_focusX: number, _focusY: number, dtSeconds: number): void {
+    this.updateCamera();
     for (const view of this.players.values()) {
       view.mixer?.update(dtSeconds);
     }
@@ -894,19 +887,6 @@ export class WorldScene {
         if (child.material instanceof THREE.Material) child.material.dispose();
       }
     }
-    for (const mesh of this.terrainMeshes) {
-      mesh.geometry.dispose();
-      if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((m) => m.dispose());
-      } else if (mesh.material instanceof THREE.Material) {
-        mesh.material.dispose();
-      }
-    }
-    this.terrainMeshes.length = 0;
-    for (const tex of this.terrainTextures) {
-      tex.dispose();
-    }
-    this.terrainTextures.length = 0;
     disposeGolfBallResources();
     disposeBloodStainResources();
     this.renderer.dispose();
@@ -1078,185 +1058,16 @@ export class WorldScene {
   }
 
   /**
-   * The player stays in the middle of their own viewport at all times — the
-   * camera follows the focus point exactly, with no edge clamping. Near the
-   * field border the dark backdrop simply fills the out-of-field area.
+   * The camera stands still at the center of the world at all times.
+   * The entire arena fits in the viewbox without panning or zooming.
    */
-  private updateCamera(focusX: number, focusY: number): void {
-    this.focusX = focusX;
-    this.focusY = focusY;
+  private updateCamera(): void {
+    this.focusX = WORLD_WIDTH / 2;
+    this.focusY = WORLD_HEIGHT / 2;
     const camOffsetY = CAMERA_DISTANCE * Math.sin(CAMERA_TILT_ANGLE);
     const camHeight = CAMERA_DISTANCE * Math.cos(CAMERA_TILT_ANGLE);
     this.camera.position.set(this.focusX, -this.focusY - camOffsetY, camHeight);
     this.camera.lookAt(this.focusX, -this.focusY, 0);
     this.camera.updateMatrixWorld();
-  }
-
-  private buildTerrainZones(): void {
-    for (const zone of COURSE_ZONES) {
-      switch (zone.type) {
-        case "fairway":
-          this.addFairwayZone(zone);
-          break;
-        case "green":
-          this.addGreenZone(zone);
-          break;
-        case "bunker":
-          this.addBunkerZone(zone);
-          break;
-        case "rough":
-          this.addRoughZone(zone);
-          break;
-      }
-    }
-  }
-
-  private addFairwayZone(zone: TerrainZone): void {
-    if (zone.shape === "rect") {
-      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
-      const tex = this.fieldTexture.clone();
-      tex.needsUpdate = true;
-      tex.repeat.set(
-        zone.width / FIELD_TILE_SIZE,
-        zone.height / FIELD_TILE_SIZE,
-      );
-      this.terrainTextures.push(tex);
-      const mat = new THREE.MeshStandardMaterial({
-        map: tex,
-        color: THEME.fairwayTint,
-        roughness: 0.85,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.9);
-      if (zone.rotation) {
-        mesh.rotation.z = -zone.rotation;
-      }
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    } else {
-      const geom = new THREE.CircleGeometry(zone.radius, 48);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.fairwayTint,
-        roughness: 0.85,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.9);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    }
-  }
-
-  private addGreenZone(zone: TerrainZone): void {
-    if (zone.shape === "circle") {
-      // Outer collar fringe
-      const collarGeom = new THREE.RingGeometry(
-        zone.radius,
-        zone.radius + 5,
-        48,
-      );
-      const collarMat = new THREE.MeshStandardMaterial({
-        color: THEME.greenCollarTint,
-        roughness: 0.7,
-        side: THREE.DoubleSide,
-      });
-      const collarMesh = new THREE.Mesh(collarGeom, collarMat);
-      collarMesh.position.set(zone.x, -zone.y, -0.81);
-      this.scene.add(collarMesh);
-      this.terrainMeshes.push(collarMesh);
-
-      // Green putting surface
-      const geom = new THREE.CircleGeometry(zone.radius, 48);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.greenTint,
-        roughness: 0.55,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.8);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    } else {
-      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.greenTint,
-        roughness: 0.55,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.8);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    }
-  }
-
-  private addBunkerZone(zone: TerrainZone): void {
-    if (zone.shape === "circle") {
-      // Darker lip rim
-      const lipGeom = new THREE.RingGeometry(
-        zone.radius - 2.5,
-        zone.radius,
-        48,
-      );
-      const lipMat = new THREE.MeshStandardMaterial({
-        color: THEME.bunkerLipTint,
-        roughness: 0.98,
-        side: THREE.DoubleSide,
-      });
-      const lipMesh = new THREE.Mesh(lipGeom, lipMat);
-      lipMesh.position.set(zone.x, -zone.y, -0.69);
-      this.scene.add(lipMesh);
-      this.terrainMeshes.push(lipMesh);
-
-      // Bunker fill circle (sand in classic, gray stone in dark themes)
-      const geom = new THREE.CircleGeometry(zone.radius, 48);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.bunkerTint,
-        roughness: 0.98,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.7);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    } else {
-      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.bunkerTint,
-        roughness: 0.98,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.7);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    }
-  }
-
-  private addRoughZone(zone: TerrainZone): void {
-    if (zone.shape === "circle") {
-      const geom = new THREE.CircleGeometry(zone.radius, 48);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.roughPatchTint,
-        roughness: 0.95,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.85);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    } else {
-      const geom = new THREE.PlaneGeometry(zone.width, zone.height);
-      const mat = new THREE.MeshStandardMaterial({
-        color: THEME.roughPatchTint,
-        roughness: 0.95,
-        metalness: 0.0,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(zone.x, -zone.y, -0.85);
-      this.scene.add(mesh);
-      this.terrainMeshes.push(mesh);
-    }
   }
 }

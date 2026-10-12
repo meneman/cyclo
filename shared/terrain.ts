@@ -22,7 +22,7 @@ export interface TerrainProperties {
 export const TERRAIN_PROPERTIES: Record<TerrainType, TerrainProperties> = {
   fairway: {
     type: "fairway",
-    name: "Fairway",
+    name: "Normal Terrain",
     rollDecel: BALL_ROLL_DECEL, // 95 u/s² (arcade standard)
     restitution: BALL_RESTITUTION, // 0.55
     bounceFriction: BALL_BOUNCE_FRICTION, // 0.75
@@ -54,7 +54,7 @@ export const TERRAIN_PROPERTIES: Record<TerrainType, TerrainProperties> = {
   },
 };
 
-export const DEFAULT_TERRAIN: TerrainType = "rough";
+export const DEFAULT_TERRAIN: TerrainType = "fairway";
 
 export type TerrainShapeType = "rect" | "circle";
 
@@ -109,167 +109,10 @@ export function isPointInZone(
 
 /**
  * Course surface zones defined in shared sim coordinates (x right, y down).
- * Later entries in the list take precedence over earlier ones when sampled,
- * mirroring layered visual rendering (Fairway -> Green -> Bunker).
- *
- * Compact 1500x1500 layout centered on the spawn hub (750, 750): one bunker
- * per hole plus the practice bunker, greens left open for faster play.
+ * With sand, grass, and secondary hazard zones removed, the entire arena uses
+ * purely the base normal terrain.
  */
-export const COURSE_ZONES: TerrainZone[] = [
-  // ── Central Clubhouse & Spawn Hub (750, 750) ────────────────────────────
-  {
-    id: "hub-fairway",
-    type: "fairway",
-    shape: "rect",
-    x: 750,
-    y: 750,
-    width: 260,
-    height: 260,
-  },
-  {
-    id: "hub-practice-green",
-    type: "green",
-    shape: "circle",
-    x: 690,
-    y: 690,
-    radius: 33,
-  },
-  {
-    id: "hub-practice-bunker",
-    type: "bunker",
-    shape: "circle",
-    x: 810,
-    y: 810,
-    radius: 20,
-  },
-
-  // ── Hole 1: South Fairway & Green ───────────────────────────────────────
-  {
-    id: "h1-fairway",
-    type: "fairway",
-    shape: "rect",
-    x: 750,
-    y: 1025,
-    width: 190,
-    height: 350,
-  },
-  {
-    id: "h1-fairway-bunker",
-    type: "bunker",
-    shape: "circle",
-    x: 820,
-    y: 1000,
-    radius: 21,
-  },
-  {
-    id: "h1-green",
-    type: "green",
-    shape: "circle",
-    x: 750,
-    y: 1200,
-    radius: 40,
-  },
-
-  // ── Hole 2: East Fairway & Green ────────────────────────────────────────
-  {
-    id: "h2-fairway",
-    type: "fairway",
-    shape: "rect",
-    x: 1025,
-    y: 750,
-    width: 350,
-    height: 180,
-  },
-  {
-    id: "h2-fairway-bunker",
-    type: "bunker",
-    shape: "circle",
-    x: 1025,
-    y: 815,
-    radius: 20,
-  },
-  {
-    id: "h2-green",
-    type: "green",
-    shape: "circle",
-    x: 1210,
-    y: 750,
-    radius: 40,
-  },
-
-  // ── Hole 3: North Fairway & Green ───────────────────────────────────────
-  {
-    id: "h3-fairway",
-    type: "fairway",
-    shape: "rect",
-    x: 750,
-    y: 475,
-    width: 180,
-    height: 350,
-  },
-  {
-    id: "h3-fairway-bunker",
-    type: "bunker",
-    shape: "circle",
-    x: 685,
-    y: 500,
-    radius: 20,
-  },
-  {
-    id: "h3-green",
-    type: "green",
-    shape: "circle",
-    x: 750,
-    y: 300,
-    radius: 40,
-  },
-
-  // ── Hole 4: West / Northwest Fairway & Green ────────────────────────────
-  {
-    id: "h4-fairway-corridor",
-    type: "fairway",
-    shape: "rect",
-    x: 475,
-    y: 750,
-    width: 350,
-    height: 180,
-  },
-  {
-    id: "h4-fairway-west",
-    type: "fairway",
-    shape: "rect",
-    x: 325,
-    y: 275,
-    width: 375,
-    height: 275,
-  },
-  {
-    id: "h4-connecting-fairway",
-    type: "fairway",
-    shape: "rect",
-    x: 425,
-    y: 500,
-    width: 160,
-    height: 350,
-    rotation: -0.785, // -45 degrees diagonal corridor
-  },
-  {
-    id: "h4-green",
-    type: "green",
-    shape: "circle",
-    x: 200,
-    y: 210,
-    radius: 40,
-  },
-  {
-    id: "h4-bunker-left",
-    type: "bunker",
-    shape: "circle",
-    x: 160,
-    y: 205,
-    radius: 18,
-  },
-];
+export const COURSE_ZONES: TerrainZone[] = [];
 
 /**
  * Returns the terrain type at world coordinate (x, y). Later zones in the

@@ -7,6 +7,9 @@ import {
   strikeBall,
 } from "../../shared/ballPhysics";
 import {
+  HOLE_COUNT,
+  HOLE_RADIUS_MAX,
+  HOLE_RADIUS_MIN,
   ITEM_PICKUP_RADIUS,
   ITEM_PICKUP_Y_OFFSET,
   MATCH_COUNTDOWN_SECONDS,
@@ -101,14 +104,71 @@ export class World {
   constructor(id: string = "default") {
     this.id = id;
     this.topic = `room:${id}`;
-    for (let i = 0; i < 10; i++) {
-      const id = `hole-${i}`;
-      this.holes.set(id, {
-        id,
-        x: Math.random() * WORLD_WIDTH,
-        y: Math.random() * WORLD_HEIGHT,
-        radius: 30 + Math.random() * 20,
-      });
+    const placedHoles: HoleState[] = [];
+    const minPadding = 45;
+    const minHoleSpacing = 70;
+
+    for (let i = 0; i < HOLE_COUNT; i++) {
+      const radius =
+        HOLE_RADIUS_MIN + Math.random() * (HOLE_RADIUS_MAX - HOLE_RADIUS_MIN);
+      let x = 0;
+      let y = 0;
+      let valid = false;
+
+      for (let attempt = 0; attempt < 250; attempt++) {
+        x =
+          minPadding +
+          radius +
+          Math.random() * (WORLD_WIDTH - 2 * (minPadding + radius));
+        y =
+          minPadding +
+          radius +
+          Math.random() * (WORLD_HEIGHT - 2 * (minPadding + radius));
+
+        // Ensure holes do not overlap and maintain generous spacing
+        const overlaps = placedHoles.some(
+          (h) =>
+            Math.hypot(x - h.x, y - h.y) < radius + h.radius + minHoleSpacing,
+        );
+        if (overlaps) continue;
+
+        // Keep clear of spawn tees
+        if (
+          Math.hypot(x - MATCH_TEE_1_SPAWN.x, y - MATCH_TEE_1_SPAWN.y) < 45 ||
+          Math.hypot(x - MATCH_TEE_2_SPAWN.x, y - MATCH_TEE_2_SPAWN.y) < 45
+        ) {
+          continue;
+        }
+
+        // Keep clear of pickup spawns
+        if (
+          Math.hypot(
+            x - WORLD_WIDTH / 2,
+            y - (WORLD_HEIGHT / 2 - ITEM_PICKUP_Y_OFFSET),
+          ) < 55
+        ) {
+          continue;
+        }
+
+        valid = true;
+        break;
+      }
+
+      if (!valid) {
+        const fallbackXs = [120, 300, 480];
+        const fallbackYs = [280, 300, 280];
+        x = fallbackXs[i] ?? 100 + i * 150;
+        y = fallbackYs[i] ?? 200;
+      }
+
+      const hole: HoleState = {
+        id: `hole-${i}`,
+        x: Math.round(x),
+        y: Math.round(y),
+        radius: Math.round(radius * 10) / 10,
+      };
+      placedHoles.push(hole);
+      this.holes.set(hole.id, hole);
     }
 
     // One pickup per effect card, side by side above the world center.

@@ -1,10 +1,9 @@
 /**
- * World size, in world units — a compact open course.
- * At ~1500 units across it spans about 50 character footprints, keeping
- * engagements tight while each client's viewport still shows only a window.
+ * World size, in world units — a 16:9 HD format single-screen arena.
+ * Spans full width of the screen, with top and bottom letterbox borders under 40° tilt.
  */
-export const WORLD_WIDTH = 1500;
-export const WORLD_HEIGHT = 1500;
+export const WORLD_WIDTH = 640;
+export const WORLD_HEIGHT = 360;
 
 /**
  * Locked design viewbox dimensions (16:9).
@@ -95,9 +94,9 @@ export const BALL_GRAVITY = 220;
 /** Launch elevation of every shot, in radians (22.5° for low, screaming drives) */
 export const BALL_LAUNCH_ANGLE = Math.PI / 8;
 /** Carry (distance to the first ground contact) at minimal power, world units */
-export const BALL_MIN_CARRY = 25;
-/** Carry at full power — fast and rewarding across the open course */
-export const BALL_MAX_CARRY = 350;
+export const BALL_MIN_CARRY = 20;
+/** Carry at full power — punchy cross-court drives in the compact arena */
+export const BALL_MAX_CARRY = 220;
 /** Power curve exponent: >1 makes low charges more precise for short shots */
 export const BALL_POWER_EXP = 1.2;
 
@@ -128,20 +127,24 @@ export const HIT_OFFSET_RIGHT = 6;
 /** Hit zone radius — a ball whose edge touches this circle can be hit */
 export const HIT_RADIUS = 12;
 
-// ── 1v1 Match constants ──────────────────────────────────────────────────
+/** Number of scoring holes in the arena */
+export const HOLE_COUNT = 3;
+/** Radius range for scoring holes in the arena */
+export const HOLE_RADIUS_MIN = 8;
+export const HOLE_RADIUS_MAX = 10;
 
 /** Target score to win a 1v1 match (frags + holes) */
 export const MATCH_TARGET_SCORE = 10;
 /** Countdown duration in seconds once 2 players enter a room */
 export const MATCH_COUNTDOWN_SECONDS = 10;
-/** Spawn coordinates for Player 1 at match start */
-export const MATCH_TEE_1_SPAWN = { x: 650, y: 750 };
-/** Spawn coordinates for Player 2 at match start */
-export const MATCH_TEE_2_SPAWN = { x: 850, y: 750 };
+/** Spawn coordinates for Player 1 at match start (near arena center) */
+export const MATCH_TEE_1_SPAWN = { x: 280, y: 180 };
+/** Spawn coordinates for Player 2 at match start (near arena center) */
+export const MATCH_TEE_2_SPAWN = { x: 360, y: 180 };
 
 // ── Item pickups ─────────────────────────────────────────────────────────
 
 /** Pickup circle radius — a player whose center enters it equips the item */
 export const ITEM_PICKUP_RADIUS = 26;
 /** Pickups sit this far above (decreasing y) the world center */
-export const ITEM_PICKUP_Y_OFFSET = 200;
+export const ITEM_PICKUP_Y_OFFSET = 70;

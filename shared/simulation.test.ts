@@ -29,7 +29,7 @@ function keys(overrides: Partial<InputState>): InputState {
   return { ...IDLE, ...overrides };
 }
 
-function makePlayer(x = 600, y = 450): PlayerState {
+function makePlayer(x = 320, y = 180): PlayerState {
   return { id: "p1", name: "p1", x, y, color: 0xffffff };
 }
 
@@ -37,14 +37,14 @@ describe("stepPlayer", () => {
   test("moves at constant speed along the held axis", () => {
     const player = makePlayer();
     stepPlayer(player, RIGHT, 0.05);
-    assert.equal(player.x, 600 + PLAYER_SPEED * 0.05);
-    assert.equal(player.y, 450);
+    assert.equal(player.x, 320 + PLAYER_SPEED * 0.05);
+    assert.equal(player.y, 180);
   });
 
   test("stays put with no input", () => {
     const player = makePlayer();
     stepPlayer(player, IDLE, 0.05);
-    assert.deepEqual({ x: player.x, y: player.y }, { x: 600, y: 450 });
+    assert.deepEqual({ x: player.x, y: player.y }, { x: 320, y: 180 });
   });
 
   test("charges swing power and blocks movement while charging", () => {
@@ -56,8 +56,8 @@ describe("stepPlayer", () => {
       0.75,
     );
     // Player must NOT move while charging
-    assert.equal(player.x, 600);
-    assert.equal(player.y, 450);
+    assert.equal(player.x, 320);
+    assert.equal(player.y, 180);
     // 0.75s / 1.5s = 0.5 (50% power)
     assert.ok(Math.abs((player.charge ?? 0) - 0.5) < 1e-6);
   });
@@ -79,8 +79,8 @@ describe("stepPlayer", () => {
       1,
     );
     const expected = PLAYER_SPEED / Math.SQRT2;
-    assert.ok(Math.abs(player.x - (600 + expected)) < 1e-9);
-    assert.ok(Math.abs(player.y - (450 + expected)) < 1e-9);
+    assert.ok(Math.abs(player.x - (320 + expected)) < 1e-9);
+    assert.ok(Math.abs(player.y - (180 + expected)) < 1e-9);
   });
 
   test("clamps to the world bounds", () => {
@@ -142,7 +142,7 @@ describe("stepPlayer", () => {
 
     // Movement while knocked down
     stepPlayer(player, RIGHT, 0.5);
-    assert.equal(player.x, 600); // no movement
+    assert.equal(player.x, 320); // no movement
     assert.equal(player.charge, 0); // charge cancelled
     assert.equal(player.knockdownTimer, 1.0); // timer ticked down
 
@@ -162,11 +162,11 @@ describe("stepPlayer", () => {
 
     stepPlayer(player, RIGHT, 0.1);
     assert.equal(player.knockdownTimer, 0); // expired
-    assert.equal(player.x, 600); // stationary on expiration step
+    assert.equal(player.x, 320); // stationary on expiration step
 
     // Next step, player moves normally
     stepPlayer(player, RIGHT, 0.1);
-    assert.equal(player.x, 600 + PLAYER_SPEED * 0.1);
+    assert.equal(player.x, 320 + PLAYER_SPEED * 0.1);
   });
 });
 

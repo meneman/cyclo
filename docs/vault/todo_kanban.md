@@ -63,6 +63,13 @@ kanban-plugin: board
 
 ## done
 
+- [x] Single-View Fixed-Camera Arena & Centered Spawn
+  - Scope: Refactor the game world into a compact single-screen arena ($600 \times 380$) where the entire course fits in a single view with no camera scrolling, no zoom, and centered player spawns.
+  - Camera: Three.js orthographic camera permanently anchored to arena center $(300, 190)$ with fixed zoom (`CAMERA_ZOOM = 2.6`). Follow-camera motion and zoom disabled.
+  - Spawns & Tees: Players spawn authoritatively at $(300, 190)$ on join and center tees $(260, 190)$ / $(340, 190)$ on 1v1 match start.
+  - Course & Terrain: Redesigned `COURSE_ZONES` with central fairway hub, East and West target greens, and tactical bunkers sized to the $600 \times 380$ field.
+  - Arcade Ball Tuning: `BALL_MAX_CARRY` tuned to 220 for fast cross-court drives and energetic wall ricochets without clipping off-screen.
+  - Erledigt 2026-10-12: Spielfeld auf $600 \times 380$ Einheiten verkleinert, sodass alle vier Ränder auf einem 16:9-Bildschirm sichtbar sind. Kamera auf die Arena-Mitte fixiert, Scrollen und Zoom entfernt. Spawns und Match-Tees in die Mitte verlegt. Kurs-Layout und Zonen angepasst. 166/166 Tests grün (`bun test`), ESLint, Server `tsc` und Vite Production Build fehlerfrei. Checkliste in `docs/local/MANUAL_TESTS.md` aktualisiert.
 - [x] Item Stacking (up to 5 stacks), 2 Distinctly Colored Effect Cards & Trampoline Removal
   - Scope: Allow items to be collected up to 5 times (`MAX_STACKS_PER_ITEM = 5`), scaling stats exponentially for multipliers and linearly for additions, capped by `STAT_LIMITS` with explicit MAX badge feedback.
   - Pickup Cards: Exactly 2 effect cards on the map: Titan Ball (`0x3b82f6`, Electric Blue, aligned with Lane 1) and Tailwind (`0xec4899`, Hot Pink, aligned with Lane 2). 3rd card (`minnow`) completely removed. Trampoline mechanic completely removed.
