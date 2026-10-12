@@ -14,6 +14,7 @@ import type {
   TerrainZoneCircle,
   TerrainZoneRect,
 } from "./terrain";
+import { WORLD_HEIGHT, WORLD_WIDTH } from "./constants";
 import { createBall, stepBall, strikeBall } from "./ballPhysics";
 import type { PlayerState } from "./types";
 
@@ -149,27 +150,60 @@ describe("terrain", () => {
   test("COURSE_ZONES layout correctly identifies key landmark locations", () => {
     assert.ok(COURSE_ZONES.length > 0, "Course layout must contain zones");
 
-    // Spawn hub center (1500, 1500) is on Fairway
-    assert.equal(getTerrainAt(1500, 1500), "fairway");
-    assert.equal(getTerrainPropertiesAt(1500, 1500).type, "fairway");
+    // Spawn hub center (750, 750) is on Fairway
+    assert.equal(getTerrainAt(750, 750), "fairway");
+    assert.equal(getTerrainPropertiesAt(750, 750).type, "fairway");
 
-    // Practice green near hub (1380, 1380) is Green
-    assert.equal(getTerrainAt(1380, 1380), "green");
-    assert.equal(getTerrainPropertiesAt(1380, 1380).type, "green");
+    // Practice green near hub (690, 690) is Green
+    assert.equal(getTerrainAt(690, 690), "green");
+    assert.equal(getTerrainPropertiesAt(690, 690).type, "green");
 
-    // Practice bunker near hub (1620, 1620) is Bunker
-    assert.equal(getTerrainAt(1620, 1620), "bunker");
-    assert.equal(getTerrainPropertiesAt(1620, 1620).type, "bunker");
+    // Practice bunker near hub (810, 810) is Bunker
+    assert.equal(getTerrainAt(810, 810), "bunker");
+    assert.equal(getTerrainPropertiesAt(810, 810).type, "bunker");
 
-    // Hole 1 Green (1500, 2400) is Green
-    assert.equal(getTerrainAt(1500, 2400), "green");
+    // Hole 1 Green (750, 1200) is Green
+    assert.equal(getTerrainAt(750, 1200), "green");
 
-    // Hole 1 Greenside bunker left (1410, 2380) is Bunker
-    assert.equal(getTerrainAt(1410, 2380), "bunker");
+    // Hole 1 fairway bunker (820, 1000) is Bunker
+    assert.equal(getTerrainAt(820, 1000), "bunker");
 
-    // Far outside course corridor (e.g. 100, 2900) is Rough
-    assert.equal(getTerrainAt(100, 2900), "rough");
-    assert.equal(getTerrainPropertiesAt(100, 2900).type, "rough");
+    // Far outside course corridor (e.g. 100, 1450) is Rough
+    assert.equal(getTerrainAt(100, 1450), "rough");
+    assert.equal(getTerrainPropertiesAt(100, 1450).type, "rough");
+  });
+
+  test("compact course fits inside the 1500 world with few bunkers", () => {
+    assert.equal(WORLD_WIDTH, 1500);
+    assert.equal(WORLD_HEIGHT, 1500);
+    for (const zone of COURSE_ZONES) {
+      if (zone.shape === "circle") {
+        assert.ok(zone.x - zone.radius >= 0, `${zone.id} inside west bound`);
+        assert.ok(
+          zone.x + zone.radius <= WORLD_WIDTH,
+          `${zone.id} inside east bound`,
+        );
+        assert.ok(zone.y - zone.radius >= 0, `${zone.id} inside north bound`);
+        assert.ok(
+          zone.y + zone.radius <= WORLD_HEIGHT,
+          `${zone.id} inside south bound`,
+        );
+      } else {
+        const half = Math.hypot(zone.width, zone.height) / 2;
+        assert.ok(zone.x - half >= 0, `${zone.id} inside west bound`);
+        assert.ok(zone.x + half <= WORLD_WIDTH, `${zone.id} inside east bound`);
+        assert.ok(zone.y - half >= 0, `${zone.id} inside north bound`);
+        assert.ok(
+          zone.y + half <= WORLD_HEIGHT,
+          `${zone.id} inside south bound`,
+        );
+      }
+    }
+    const bunkers = COURSE_ZONES.filter((zone) => zone.type === "bunker");
+    assert.ok(
+      bunkers.length <= 6,
+      `Course must stay low-obstacle (found ${bunkers.length} bunkers)`,
+    );
   });
 
   test("strikeBall applies reduced carry penalty when hitting from Rough and Bunker", () => {
@@ -186,18 +220,18 @@ describe("terrain", () => {
     const power = 1.0;
 
     // Shot from Fairway
-    const fairwayBall = createBall("b-fairway", "p1", 0, 1500, 1500);
+    const fairwayBall = createBall("b-fairway", "p1", 0, 750, 750);
     strikeBall(fairwayBall, hitter, power);
     // vx is horizontal launch speed
     const fairwayVx = fairwayBall.vx;
 
     // Shot from Rough (using custom zone or out of bounds rough)
-    const roughBall = createBall("b-rough", "p1", 0, 100, 2900);
+    const roughBall = createBall("b-rough", "p1", 0, 100, 1450);
     strikeBall(roughBall, hitter, power);
     const roughVx = roughBall.vx;
 
     // Shot from Sand Bunker
-    const bunkerBall = createBall("b-bunker", "p1", 0, 1620, 1620);
+    const bunkerBall = createBall("b-bunker", "p1", 0, 810, 810);
     strikeBall(bunkerBall, hitter, power);
     const bunkerVx = bunkerBall.vx;
 

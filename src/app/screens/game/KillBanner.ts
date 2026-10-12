@@ -57,7 +57,7 @@ export class KillBanner extends Container {
 
   /**
    * Triggers the big KILL banner slam animation.
-   * @param victimName Optional name of the player or bot eliminated.
+   * @param victimName Optional name of the player eliminated.
    */
   public show(victimName?: string): void {
     if (victimName) {

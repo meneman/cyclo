@@ -10,7 +10,7 @@ describe("KillBanner", () => {
 
   test("show makes banner visible and sets scale and alpha", () => {
     const banner = new KillBanner();
-    banner.show("Bot-Tiger");
+    banner.show("Rival");
     assert.equal(banner.visible, true);
     assert.equal(banner.alpha, 1);
     assert.equal(banner.scale.x, 1.5);
@@ -19,7 +19,7 @@ describe("KillBanner", () => {
 
   test("update animates slam down and eventual fade out", () => {
     const banner = new KillBanner();
-    banner.show("Bot-Tiger");
+    banner.show("Rival");
 
     // After 0.12s, slam finishes (scale 1.0)
     banner.update(0.15);

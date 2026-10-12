@@ -40,6 +40,10 @@ export class InputController {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("pointermove", this.onPointerMove);
+    // Losing window focus swallows the pending keyup (alt-tab with a key
+    // held): without this the direction stays stuck and the player keeps
+    // pushing into the wall after returning.
+    window.addEventListener("blur", this.onBlur);
   }
 
   public get(): InputState {
@@ -49,6 +53,18 @@ export class InputController {
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (enabled) return;
+    this.releaseAll();
+  }
+
+  public destroy(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("blur", this.onBlur);
+  }
+
+  /** Clears every held flag, notifying once when anything was held */
+  private releaseAll(): void {
     const hadInput =
       this.state.up ||
       this.state.down ||
@@ -65,11 +81,9 @@ export class InputController {
     }
   }
 
-  public destroy(): void {
-    window.removeEventListener("keydown", this.onKeyDown);
-    window.removeEventListener("keyup", this.onKeyUp);
-    window.removeEventListener("pointermove", this.onPointerMove);
-  }
+  private readonly onBlur = (): void => {
+    this.releaseAll();
+  };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (!this.enabled) return;

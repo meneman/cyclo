@@ -1,10 +1,10 @@
 /**
- * World size, in world units — a big plain open area with no obstacles.
- * At ~3000 units across it spans about 100 character footprints, so players
- * roam freely while each client's viewport shows only a window of it.
+ * World size, in world units — a compact open course.
+ * At ~1500 units across it spans about 50 character footprints, keeping
+ * engagements tight while each client's viewport still shows only a window.
  */
-export const WORLD_WIDTH = 3000;
-export const WORLD_HEIGHT = 3000;
+export const WORLD_WIDTH = 1500;
+export const WORLD_HEIGHT = 1500;
 
 /**
  * Locked design viewbox dimensions (16:9).
@@ -59,9 +59,6 @@ export const PLAYER_COLORS: readonly number[] = [
   0xe11d48, // Rose
   0x8b5cf6, // Violet
 ];
-
-/** Color used for bot off-screen indicators */
-export const BOT_INDICATOR_COLOR = 0xffffff;
 
 /** Time in seconds of holding Space required to reach 100% swing power */
 export const MAX_CHARGE_DURATION_SECONDS = 1.5;
@@ -138,6 +135,13 @@ export const MATCH_TARGET_SCORE = 10;
 /** Countdown duration in seconds once 2 players enter a room */
 export const MATCH_COUNTDOWN_SECONDS = 10;
 /** Spawn coordinates for Player 1 at match start */
-export const MATCH_TEE_1_SPAWN = { x: 1400, y: 1500 };
+export const MATCH_TEE_1_SPAWN = { x: 650, y: 750 };
 /** Spawn coordinates for Player 2 at match start */
-export const MATCH_TEE_2_SPAWN = { x: 1600, y: 1500 };
+export const MATCH_TEE_2_SPAWN = { x: 850, y: 750 };
+
+// ── Item pickups ─────────────────────────────────────────────────────────
+
+/** Pickup circle radius — a player whose center enters it equips the item */
+export const ITEM_PICKUP_RADIUS = 26;
+/** Pickups sit this far above (decreasing y) the world center */
+export const ITEM_PICKUP_Y_OFFSET = 200;

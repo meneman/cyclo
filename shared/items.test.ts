@@ -5,6 +5,7 @@ import { BALL_MAX_CARRY, KNOCKDOWN_DURATION_SECONDS } from "./constants";
 import {
   BASE_STATS,
   ITEM_CATALOG,
+  ITEM_PICKUP_SPAWNS,
   STAT_LIMITS,
   getItem,
   isValidItemForSlot,
@@ -140,6 +141,80 @@ describe("resolveStats", () => {
       resolvePlayerColor(resolveStats({ outfit: "tank-suit" }), 0x123456),
       0x22c55e,
     );
+  });
+});
+
+describe("new effect cards", () => {
+  test("titan-ball grows ball and player size in the ball slot", () => {
+    assert.equal(isValidItemForSlot("titan-ball", "ball"), true);
+    assert.equal(isValidItemForSlot("titan-ball", "club"), false);
+    const stats = resolveStats({ ball: "titan-ball" });
+    assert.ok(Math.abs(stats.ballRadiusMult - 1.5) < 1e-9);
+    assert.ok(Math.abs(stats.playerRadiusMult - 1.3) < 1e-9);
+  });
+
+  test("tailwind speeds ball flight and slows the player", () => {
+    assert.equal(isValidItemForSlot("tailwind", "club"), true);
+    assert.equal(isValidItemForSlot("tailwind", "ball"), false);
+    const stats = resolveStats({ club: "tailwind" });
+    assert.ok(Math.abs((stats.gravityMult ?? 1) - 1.5) < 1e-9);
+    assert.ok(Math.abs(stats.playerSpeedMult - 0.8) < 1e-9);
+    const ball = createBall("b1", "p1", 0, 100, 100);
+    strikeBall(ball, makePlayer(), 1, 0, undefined, stats);
+    assert.ok(Math.abs((ball.gravityMult ?? 1) - 1.5) < 1e-9);
+  });
+
+  test("minnow shrinks the player in the outfit slot", () => {
+    assert.equal(isValidItemForSlot("minnow", "outfit"), true);
+    assert.equal(isValidItemForSlot("minnow", "ball"), false);
+    const stats = resolveStats({ outfit: "minnow" });
+    assert.ok(Math.abs(stats.playerRadiusMult - 0.75) < 1e-9);
+  });
+
+  test("titan-ball extends collision reach, minnow shrinks it", () => {
+    const target = makePlayer({ id: "target", x: 116, y: 100 });
+    const baseBall = createBall("b-base", "shooter", 0, 100, 100);
+    baseBall.lastHitBy = "shooter";
+    baseBall.resting = false;
+    baseBall.vx = 60;
+    baseBall.z = 5;
+    assert.equal(resolveBallPlayerCollision(baseBall, target), false);
+
+    const titanStats = resolveStats({ ball: "titan-ball" });
+    const titanBall = createBall("b-titan", "shooter", 0, 100, 100);
+    titanBall.lastHitBy = "shooter";
+    titanBall.resting = false;
+    titanBall.vx = 60;
+    titanBall.z = 5;
+    assert.equal(
+      resolveBallPlayerCollision(titanBall, target, titanStats),
+      true,
+    );
+
+    // Distance 15: base reach is 15.5 (hit), minnow reach shrinks below it (miss)
+    const near = makePlayer({ id: "near", x: 115, y: 100 });
+    const minnowStats = resolveStats({ outfit: "minnow" });
+    const grazing = createBall("b-graze", "shooter", 0, 100, 100);
+    grazing.lastHitBy = "shooter";
+    grazing.resting = false;
+    grazing.vx = 60;
+    grazing.z = 5;
+    assert.equal(
+      resolveBallPlayerCollision(grazing, near, undefined, minnowStats),
+      false,
+    );
+  });
+});
+
+describe("item pickup spawns", () => {
+  test("one pickup per effect card, side by side, covering all slots", () => {
+    assert.equal(ITEM_PICKUP_SPAWNS.length, 3);
+    const ids = ITEM_PICKUP_SPAWNS.map((s) => s.itemId);
+    assert.equal(new Set(ids).size, ids.length);
+    const slots = ITEM_PICKUP_SPAWNS.map((s) => getItem(s.itemId)?.slot);
+    assert.deepEqual([...slots].sort(), ["ball", "club", "outfit"]);
+    const dxs = ITEM_PICKUP_SPAWNS.map((s) => s.dx);
+    assert.equal(new Set(dxs).size, dxs.length);
   });
 });
 

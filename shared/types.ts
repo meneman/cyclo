@@ -125,6 +125,15 @@ export interface TrampolineState {
   bounceVelocity: number;
 }
 
+/** Map pickup granting an item when a player walks into its radius */
+export interface ItemPickupState {
+  id: string;
+  itemId: string;
+  x: number;
+  y: number;
+  radius: number;
+}
+
 // ── Match & Room types ───────────────────────────────────────────────────
 
 export const MatchStatus = {

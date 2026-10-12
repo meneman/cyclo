@@ -3,6 +3,7 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
 import {
   HIT_RADIUS,
+  ITEM_PICKUP_RADIUS,
   PLAYER_RADIUS,
   SWING_ANIMATION_DURATION_SECONDS,
   VIEWBOX_HEIGHT,
@@ -17,6 +18,7 @@ import type { TerrainZone } from "../../../../shared/terrain";
 import type {
   PlayerState,
   HoleState,
+  ItemPickupState,
   TrampolineState,
 } from "../../../../shared/types";
 import type { RenderBall } from "../../../net/BallPredictor";
@@ -45,25 +47,74 @@ import {
 const CAMERA_ZOOM = 3;
 /** World units covered by one repeating tile of the ground texture */
 const FIELD_TILE_SIZE = 80;
-const FIELD_TEXTURE_URL = `${import.meta.env.BASE_URL}textures/grass.png`;
 
-/** Rough (uncut natural grass) covering the base field */
-const ROUGH_TINT = 0x486b3e;
-/** Lush manicured grass for fairways */
-const FAIRWAY_TINT = 0x86c474;
-/** Radiant emerald green for putting greens */
-const GREEN_TINT = 0x3ec878;
-/** Outer collar fringe around greens */
-const GREEN_COLLAR_TINT = 0x5ab86e;
-/** Warm golden sand for bunkers */
-const BUNKER_TINT = 0xedd6a4;
-/** Darker lip for bunker edges */
-const BUNKER_LIP_TINT = 0xc2a875;
-/** Deep rough hazard patches */
-const ROUGH_PATCH_TINT = 0x3d5933;
+export interface CourtTheme {
+  /** Rough (uncut natural grass) covering the base field */
+  roughTint: number;
+  /** Manicured grass for fairways */
+  fairwayTint: number;
+  /** Putting green surface */
+  greenTint: number;
+  /** Outer collar fringe around greens */
+  greenCollarTint: number;
+  /** Bunker fill (sand in classic, crushed stone when gray) */
+  bunkerTint: number;
+  /** Darker lip for bunker edges */
+  bunkerLipTint: number;
+  /** Deep rough hazard patches */
+  roughPatchTint: number;
+  /** Out-of-bounds backdrop around the field */
+  backdrop: number;
+  /** Ground detail texture, multiplied by roughTint/fairwayTint */
+  fieldTextureUrl: string;
+  /** Cool dimmed sun for dark themes, full warm sun for classic */
+  sunIntensity: number;
+  sunColor: number;
+  hemiIntensity: number;
+  hemiGroundColor: number;
+}
 
-/** Out-of-bounds backdrop around the field */
-const BACKDROP_COLOR = 0x0b1020;
+export const COURT_THEMES = {
+  /** Original bright daytime look */
+  classic: {
+    roughTint: 0x486b3e,
+    fairwayTint: 0x86c474,
+    greenTint: 0x3ec878,
+    greenCollarTint: 0x5ab86e,
+    bunkerTint: 0xedd6a4,
+    bunkerLipTint: 0xc2a875,
+    roughPatchTint: 0x3d5933,
+    backdrop: 0x0b1020,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/grass.png`,
+    sunIntensity: 1.5,
+    sunColor: 0xffffff,
+    hemiIntensity: 1.0,
+    hemiGroundColor: 0x1a2b1a,
+  },
+  /** Variant A — darker court: dark moss greens + slate-gray bunkers */
+  midnightMoss: {
+    roughTint: 0x1f3326,
+    fairwayTint: 0x2e4a38,
+    greenTint: 0x2f6b4e,
+    greenCollarTint: 0x274434,
+    bunkerTint: 0x8b9096,
+    bunkerLipTint: 0x54595f,
+    roughPatchTint: 0x15211a,
+    backdrop: 0x06090c,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/grass.png`,
+    sunIntensity: 1.0,
+    sunColor: 0xdfe8ff,
+    hemiIntensity: 0.55,
+    hemiGroundColor: 0x0e1512,
+  },
+} satisfies Record<string, CourtTheme>;
+
+export type CourtThemeName = keyof typeof COURT_THEMES;
+
+/** Flip between "classic" and "midnightMoss" to compare texture styles live. */
+export const ACTIVE_COURT_THEME: CourtThemeName = "midnightMoss";
+
+const THEME: CourtTheme = COURT_THEMES[ACTIVE_COURT_THEME];
 /** Fallback marker color when a character template fails to load */
 const DOT_COLOR = 0x000000;
 /**
@@ -97,6 +148,123 @@ const FACING_OFFSET = 0;
 export function yawForDirection(dx: number, dy: number): number {
   return Math.atan2(dx, dy) + FACING_OFFSET;
 }
+
+/**
+ * Height of the central lamp above the ground, in world units. Deliberately
+ * low next to the ~28u characters so shadows stretch long toward the edges.
+ */
+export const CENTRAL_LIGHT_HEIGHT = 60;
+/** Warm tint for the central lamp */
+export const CENTRAL_LIGHT_COLOR = 0xffe0b3;
+/** Central lamp brightness (decay=1 falloff, see constructor) */
+export const CENTRAL_LIGHT_INTENSITY = 30;
+
+/** Warm tint for the visible pool of light on the ground at map center */
+export const LIGHT_POOL_COLOR = 0xffdf9e;
+/** Radius of the visible light pool in world units */
+export const LIGHT_POOL_RADIUS = 550;
+/** Peak brightness of the light pool (additive, fades to the edges) */
+export const LIGHT_POOL_OPACITY = 0.55;
+/** Pool sits above terrain but below shadows/indicators so both read */
+const LIGHT_POOL_ELEVATION = 0.015;
+/** Ground elevation of player shadows: above field/terrain, below indicators */
+const SHADOW_ELEVATION = 0.02;
+/** Shadow length directly under the lamp (short under-foot blob) */
+const SHADOW_BASE_LENGTH = 18;
+/** Extra shadow length per (distance-from-center / light-height) unit */
+const SHADOW_LENGTH_PER_HEIGHT = 4;
+/** Clamp so corner shadows stay readable in team fights */
+const SHADOW_MAX_LENGTH = 100;
+/** Shadow width across the outward direction */
+const SHADOW_WIDTH = 13;
+/** Shadow center offset per (distance-from-center / light-height) unit */
+const SHADOW_OFFSET_FACTOR = 3;
+/** Shadow opacity under the lamp, fading out to the edges */
+const SHADOW_CENTER_OPACITY = 0.38;
+const SHADOW_EDGE_OPACITY = 0.25;
+
+/**
+ * Builds a soft radial alpha texture (solid center fading to transparent
+ * edges) so blob shadows render as ellipses, not hard rectangles. The mesh
+ * scale stretches the circle into the outward-pointing ellipse.
+ */
+function makeRadialShadowTexture(): THREE.Texture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.55, "rgba(255,255,255,0.55)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+/** Projected blob shadow for one player: offset/scales a ground ellipse. */
+export interface PlayerShadow {
+  /** World-unit offset from the player's feet, away from map center */
+  offsetX: number;
+  offsetY: number;
+  /** Long axis of the ellipse, pointing away from map center */
+  length: number;
+  width: number;
+  /** Scene rotation (world y is negated in the scene) for the long axis */
+  rotationZ: number;
+  opacity: number;
+}
+
+/**
+ * Maps a player position to its shadow under the central lamp: the offset
+ * points radially away from the map center and both offset and length grow
+ * with distance from center and shrink as the lamp hangs higher. Pure so it
+ * stays unit-testable without a renderer.
+ */
+export function shadowForPlayer(
+  x: number,
+  y: number,
+  lightHeight: number = CENTRAL_LIGHT_HEIGHT,
+): PlayerShadow {
+  const dx = x - WORLD_WIDTH / 2;
+  const dy = y - WORLD_HEIGHT / 2;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1e-6 || lightHeight <= 0) {
+    return {
+      offsetX: 0,
+      offsetY: 0,
+      length: SHADOW_BASE_LENGTH,
+      width: SHADOW_WIDTH,
+      rotationZ: 0,
+      opacity: SHADOW_CENTER_OPACITY,
+    };
+  }
+  const spread = dist / lightHeight;
+  const offset = SHADOW_OFFSET_FACTOR * spread;
+  const maxDist = Math.hypot(WORLD_WIDTH, WORLD_HEIGHT) / 2;
+  return {
+    offsetX: (dx / dist) * offset,
+    offsetY: (dy / dist) * offset,
+    length: Math.min(
+      SHADOW_BASE_LENGTH + SHADOW_LENGTH_PER_HEIGHT * spread,
+      SHADOW_MAX_LENGTH,
+    ),
+    width: SHADOW_WIDTH,
+    rotationZ: Math.atan2(-dy, dx),
+    opacity:
+      SHADOW_CENTER_OPACITY -
+      (SHADOW_CENTER_OPACITY - SHADOW_EDGE_OPACITY) *
+        Math.min(dist / maxDist, 1),
+  };
+}
 /** Per-frame world-unit displacement above which a player counts as walking */
 const WALK_THRESHOLD = 0.5;
 
@@ -117,6 +285,7 @@ interface PlayerView {
   lastSwingSeq: number;
   bloodStain: THREE.Group;
   knockedDown: boolean;
+  shadow: THREE.Mesh;
 }
 
 /**
@@ -144,6 +313,12 @@ export class WorldScene {
   private readonly dotMaterial = new THREE.MeshBasicMaterial({
     color: DOT_COLOR,
   });
+  /** Unit plane stretched per player into a radial blob shadow */
+  private readonly shadowGeometry = new THREE.PlaneGeometry(1, 1);
+  /** Soft radial alpha map shared by all blob shadows */
+  private readonly shadowTexture: THREE.Texture;
+  /** Warm pool of light on the ground under the central lamp */
+  private readonly lightPool: THREE.Mesh;
   private readonly fieldGeometry = new THREE.PlaneGeometry(
     WORLD_WIDTH,
     WORLD_HEIGHT,
@@ -155,6 +330,15 @@ export class WorldScene {
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
   private readonly trampolineMeshes = new Map<string, THREE.Mesh>();
+  private readonly pickupMeshes = new Map<string, THREE.Mesh>();
+  /** All pickups share one circle — same radius, gold so they read as loot */
+  private readonly pickupGeometry = new THREE.CircleGeometry(
+    ITEM_PICKUP_RADIUS,
+    32,
+  );
+  private readonly pickupMaterial = new THREE.MeshBasicMaterial({
+    color: 0xeab308,
+  });
   private readonly rangeIndicator: THREE.Mesh;
   private readonly rangeMaterial: THREE.MeshBasicMaterial;
   private readonly rangeGeometry: THREE.RingGeometry;
@@ -170,6 +354,7 @@ export class WorldScene {
 
   constructor() {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.shadowTexture = makeRadialShadowTexture();
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const canvas = this.renderer.domElement;
     const mountContainer =
@@ -178,13 +363,55 @@ export class WorldScene {
       document.body;
     mountContainer.appendChild(canvas);
 
-    this.scene.background = new THREE.Color(BACKDROP_COLOR);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1a2b1a, 1.0));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    this.scene.background = new THREE.Color(THEME.backdrop);
+    this.scene.add(
+      new THREE.HemisphereLight(
+        0xffffff,
+        THEME.hemiGroundColor,
+        THEME.hemiIntensity,
+      ),
+    );
+    const sun = new THREE.DirectionalLight(THEME.sunColor, THEME.sunIntensity);
     sun.position.set(200, -100, 300);
     this.scene.add(sun);
+    // Low lamp over the map center: warm falloff players' shadows point away
+    // from. decay=1 keeps the gradient gentle across thousand-unit distances
+    // (decay=2 would collapse to a tiny bright pool under the lamp).
+    const central = new THREE.PointLight(
+      CENTRAL_LIGHT_COLOR,
+      CENTRAL_LIGHT_INTENSITY,
+      0,
+      1,
+    );
+    central.position.set(
+      WORLD_WIDTH / 2,
+      -WORLD_HEIGHT / 2,
+      CENTRAL_LIGHT_HEIGHT,
+    );
+    this.scene.add(central);
+    // Visible pool of light on the ground under the lamp: same soft radial
+    // texture as the shadows, additively blended so the middle reads bright
+    // and it fades into the dark field toward the edges.
+    this.lightPool = new THREE.Mesh(
+      new THREE.PlaneGeometry(LIGHT_POOL_RADIUS * 2, LIGHT_POOL_RADIUS * 2),
+      new THREE.MeshBasicMaterial({
+        color: LIGHT_POOL_COLOR,
+        map: this.shadowTexture,
+        transparent: true,
+        opacity: LIGHT_POOL_OPACITY,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.lightPool.position.set(
+      WORLD_WIDTH / 2,
+      -WORLD_HEIGHT / 2,
+      LIGHT_POOL_ELEVATION,
+    );
+    this.lightPool.renderOrder = 0;
+    this.scene.add(this.lightPool);
 
-    this.fieldTexture = new THREE.TextureLoader().load(FIELD_TEXTURE_URL);
+    this.fieldTexture = new THREE.TextureLoader().load(THEME.fieldTextureUrl);
     this.fieldTexture.wrapS = THREE.RepeatWrapping;
     this.fieldTexture.wrapT = THREE.RepeatWrapping;
     this.fieldTexture.repeat.set(
@@ -193,7 +420,7 @@ export class WorldScene {
     );
     this.fieldMaterial = new THREE.MeshStandardMaterial({
       map: this.fieldTexture,
-      color: ROUGH_TINT,
+      color: THEME.roughTint,
       roughness: 0.95,
       metalness: 0.0,
     });
@@ -347,6 +574,7 @@ export class WorldScene {
     const clampedPlayerScale = Math.min(Math.max(playerScaleMult, 0.7), 1.5);
     view.yaw.scale.setScalar(CHARACTER_SCALE * clampedPlayerScale);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
+    this.updateShadow(view, x, y, clampedPlayerScale);
 
     // Rotation: prefer authoritative facing vector, fall back to delta movement
     if (facingX !== undefined && facingY !== undefined) {
@@ -447,6 +675,29 @@ export class WorldScene {
     }
   }
 
+  public syncPickups(pickups: ItemPickupState[] = []): void {
+    const alive = new Set<string>();
+    for (const p of pickups || []) {
+      alive.add(p.id);
+      let mesh = this.pickupMeshes.get(p.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(this.pickupGeometry, this.pickupMaterial);
+        mesh.position.set(p.x, -p.y, 0.04);
+        this.scene.add(mesh);
+        this.pickupMeshes.set(p.id, mesh);
+      } else {
+        mesh.position.set(p.x, -p.y, 0.04);
+      }
+    }
+
+    for (const [id, mesh] of this.pickupMeshes) {
+      if (!alive.has(id)) {
+        this.scene.remove(mesh);
+        this.pickupMeshes.delete(id);
+      }
+    }
+  }
+
   public updateLocalIndicators(
     player: PlayerState | null,
     hittableBallAvailable: boolean,
@@ -493,6 +744,7 @@ export class WorldScene {
     view.knockedDown = knockedDown;
     view.yaw.visible = !knockedDown;
     view.bloodStain.visible = knockedDown;
+    view.shadow.visible = !knockedDown;
     if (knockedDown) {
       this.setWalking(view, false);
     }
@@ -565,6 +817,8 @@ export class WorldScene {
     this.scene.remove(view.yaw);
     this.scene.remove(view.bloodStain);
     disposeBloodStain(view.bloodStain);
+    this.scene.remove(view.shadow);
+    (view.shadow.material as THREE.Material).dispose();
     this.players.delete(id);
   }
 
@@ -583,6 +837,10 @@ export class WorldScene {
       this.scene.remove(mesh);
     }
     this.trampolineMeshes.clear();
+    for (const mesh of this.pickupMeshes.values()) {
+      this.scene.remove(mesh);
+    }
+    this.pickupMeshes.clear();
     this.rangeIndicator.visible = false;
     this.landingMarker.visible = false;
   }
@@ -640,9 +898,15 @@ export class WorldScene {
     this.scene.clear();
     this.dotGeometry.dispose();
     this.dotMaterial.dispose();
+    this.shadowGeometry.dispose();
+    this.shadowTexture.dispose();
+    this.lightPool.geometry.dispose();
+    (this.lightPool.material as THREE.Material).dispose();
     this.fieldGeometry.dispose();
     this.fieldMaterial.dispose();
     this.fieldTexture.dispose();
+    this.pickupGeometry.dispose();
+    this.pickupMaterial.dispose();
     this.rangeGeometry.dispose();
     this.rangeMaterial.dispose();
     for (const child of this.landingMarker.children) {
@@ -747,7 +1011,20 @@ export class WorldScene {
     bloodStain.visible = false;
     this.scene.add(bloodStain);
 
-    this.players.set(id, {
+    const shadow = new THREE.Mesh(
+      this.shadowGeometry,
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        map: this.shadowTexture,
+        transparent: true,
+        opacity: SHADOW_CENTER_OPACITY,
+        depthWrite: false,
+      }),
+    );
+    shadow.renderOrder = 1;
+    this.scene.add(shadow);
+
+    const view: PlayerView = {
       yaw,
       mixer,
       idle,
@@ -764,7 +1041,10 @@ export class WorldScene {
       lastSwingSeq: 0,
       bloodStain,
       knockedDown: false,
-    });
+      shadow,
+    };
+    this.players.set(id, view);
+    this.updateShadow(view, x, y, 1);
 
     if (color !== undefined) {
       this.setColor(id, color);
@@ -790,6 +1070,20 @@ export class WorldScene {
       );
     }
     return mixer.clipAction(clip);
+  }
+
+  /** Positions/scales one player's blob shadow from the central lamp math */
+  private updateShadow(
+    view: PlayerView,
+    x: number,
+    y: number,
+    scaleMult: number = 1,
+  ): void {
+    const s = shadowForPlayer(x, y);
+    view.shadow.position.set(x + s.offsetX, -(y + s.offsetY), SHADOW_ELEVATION);
+    view.shadow.rotation.z = s.rotationZ;
+    view.shadow.scale.set(s.length * scaleMult, s.width * scaleMult, 1);
+    (view.shadow.material as THREE.MeshBasicMaterial).opacity = s.opacity;
   }
 
   private setWalking(view: PlayerView, walking: boolean): void {
@@ -850,7 +1144,7 @@ export class WorldScene {
       this.terrainTextures.push(tex);
       const mat = new THREE.MeshStandardMaterial({
         map: tex,
-        color: FAIRWAY_TINT,
+        color: THEME.fairwayTint,
         roughness: 0.85,
         metalness: 0.0,
       });
@@ -864,7 +1158,7 @@ export class WorldScene {
     } else {
       const geom = new THREE.CircleGeometry(zone.radius, 48);
       const mat = new THREE.MeshStandardMaterial({
-        color: FAIRWAY_TINT,
+        color: THEME.fairwayTint,
         roughness: 0.85,
         metalness: 0.0,
       });
@@ -884,7 +1178,7 @@ export class WorldScene {
         48,
       );
       const collarMat = new THREE.MeshStandardMaterial({
-        color: GREEN_COLLAR_TINT,
+        color: THEME.greenCollarTint,
         roughness: 0.7,
         side: THREE.DoubleSide,
       });
@@ -896,7 +1190,7 @@ export class WorldScene {
       // Green putting surface
       const geom = new THREE.CircleGeometry(zone.radius, 48);
       const mat = new THREE.MeshStandardMaterial({
-        color: GREEN_TINT,
+        color: THEME.greenTint,
         roughness: 0.55,
         metalness: 0.0,
       });
@@ -907,7 +1201,7 @@ export class WorldScene {
     } else {
       const geom = new THREE.PlaneGeometry(zone.width, zone.height);
       const mat = new THREE.MeshStandardMaterial({
-        color: GREEN_TINT,
+        color: THEME.greenTint,
         roughness: 0.55,
         metalness: 0.0,
       });
@@ -927,7 +1221,7 @@ export class WorldScene {
         48,
       );
       const lipMat = new THREE.MeshStandardMaterial({
-        color: BUNKER_LIP_TINT,
+        color: THEME.bunkerLipTint,
         roughness: 0.98,
         side: THREE.DoubleSide,
       });
@@ -936,10 +1230,10 @@ export class WorldScene {
       this.scene.add(lipMesh);
       this.terrainMeshes.push(lipMesh);
 
-      // Silica sand circle
+      // Bunker fill circle (sand in classic, gray stone in dark themes)
       const geom = new THREE.CircleGeometry(zone.radius, 48);
       const mat = new THREE.MeshStandardMaterial({
-        color: BUNKER_TINT,
+        color: THEME.bunkerTint,
         roughness: 0.98,
         metalness: 0.0,
       });
@@ -950,7 +1244,7 @@ export class WorldScene {
     } else {
       const geom = new THREE.PlaneGeometry(zone.width, zone.height);
       const mat = new THREE.MeshStandardMaterial({
-        color: BUNKER_TINT,
+        color: THEME.bunkerTint,
         roughness: 0.98,
         metalness: 0.0,
       });
@@ -965,7 +1259,7 @@ export class WorldScene {
     if (zone.shape === "circle") {
       const geom = new THREE.CircleGeometry(zone.radius, 48);
       const mat = new THREE.MeshStandardMaterial({
-        color: ROUGH_PATCH_TINT,
+        color: THEME.roughPatchTint,
         roughness: 0.95,
         metalness: 0.0,
       });
@@ -976,7 +1270,7 @@ export class WorldScene {
     } else {
       const geom = new THREE.PlaneGeometry(zone.width, zone.height);
       const mat = new THREE.MeshStandardMaterial({
-        color: ROUGH_PATCH_TINT,
+        color: THEME.roughPatchTint,
         roughness: 0.95,
         metalness: 0.0,
       });

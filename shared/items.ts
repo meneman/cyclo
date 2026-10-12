@@ -214,11 +214,56 @@ export const ITEM_CATALOG: readonly ItemDef[] = [
       playerColor: 0xf59e0b,
     },
   },
+  {
+    id: "titan-ball",
+    name: "Titan Ball",
+    slot: "ball",
+    description: "Riesige Kugel und massiger Körper: beides deutlich größer.",
+    modifiers: {
+      ballRadiusMult: 1.5,
+      playerRadiusMult: 1.3,
+    },
+  },
+  {
+    id: "tailwind",
+    name: "Tailwind",
+    slot: "club",
+    description: "Schnellerer Ballflug, langsamere Füße.",
+    modifiers: {
+      gravityMult: 1.5,
+      playerSpeedMult: 0.8,
+    },
+  },
+  {
+    id: "minnow",
+    name: "Minnow",
+    slot: "outfit",
+    description: "Winziger Körper: schwer zu treffen.",
+    modifiers: {
+      playerRadiusMult: 0.75,
+    },
+  },
 ];
 
 const ITEM_BY_ID = new Map<string, ItemDef>(
   ITEM_CATALOG.map((item) => [item.id, item]),
 );
+
+/**
+ * Map pickups: one per new effect card, placed side by side `dx` units from
+ * the world center, ITEM_PICKUP_Y_OFFSET above the middle. Together they
+ * fill all three slots (ball/club/outfit).
+ */
+export interface ItemPickupSpawn {
+  itemId: string;
+  dx: number;
+}
+
+export const ITEM_PICKUP_SPAWNS: readonly ItemPickupSpawn[] = [
+  { itemId: "titan-ball", dx: -140 },
+  { itemId: "tailwind", dx: 0 },
+  { itemId: "minnow", dx: 140 },
+];
 
 export function getItem(id: string): ItemDef | undefined {
   return ITEM_BY_ID.get(id);

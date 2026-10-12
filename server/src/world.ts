@@ -7,6 +7,8 @@ import {
   strikeBall,
 } from "../../shared/ballPhysics";
 import {
+  ITEM_PICKUP_RADIUS,
+  ITEM_PICKUP_Y_OFFSET,
   MATCH_COUNTDOWN_SECONDS,
   MATCH_TARGET_SCORE,
   MATCH_TEE_1_SPAWN,
@@ -21,6 +23,8 @@ import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import {
   BASE_STATS,
+  ITEM_PICKUP_SPAWNS,
+  getItem,
   isValidItemForSlot,
   resolveBallColor,
   resolveStats,
@@ -35,12 +39,11 @@ import type {
   PlayerLoadout,
   PlayerState,
   HoleState,
+  ItemPickupState,
   MatchPlayerInfo,
   MatchState,
   TrampolineState,
 } from "../../shared/types";
-import type { BotPlayer, BotSpawnOptions } from "./bot";
-import { createBotPlayer, DEFAULT_BOT_SPAWNS, stepBot } from "./bot";
 
 export interface SocketData {
   playerId: string;
@@ -77,13 +80,12 @@ export class World {
   public readonly id: string;
   public readonly topic: string;
   private readonly connections = new Map<string, Connection>();
-  private readonly bots = new Map<string, BotPlayer>();
   private readonly balls = new Map<string, BallState>();
   private readonly holes = new Map<string, HoleState>();
   private readonly trampolines = new Map<string, TrampolineState>();
-  /** Aufgelöste Item-Stats pro Spieler (Bots: immer BASE_STATS, kein Loadout) */
+  private readonly pickups = new Map<string, ItemPickupState>();
+  /** Aufgelöste Item-Stats pro Spieler */
   private readonly statsCache = new Map<string, EffectiveStats>();
-  private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
   private matchStatus: MatchStatus = MatchStatus.Waiting;
@@ -94,7 +96,7 @@ export class World {
   constructor(id: string = "default") {
     this.id = id;
     this.topic = `room:${id}`;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 10; i++) {
       const id = `hole-${i}`;
       this.holes.set(id, {
         id,
@@ -104,7 +106,7 @@ export class World {
       });
     }
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 2; i++) {
       const id = `trampoline-${i}`;
       // Put the first trampoline right next to the spawn point so it's easy to test
       const x = i === 0 ? WORLD_WIDTH / 2 + 100 : Math.random() * WORLD_WIDTH;
@@ -118,67 +120,18 @@ export class World {
       });
     }
 
-    this.initDefaultBots();
-  }
-
-  private initDefaultBots(): void {
-    for (const config of DEFAULT_BOT_SPAWNS) {
-      this.spawnBot(config);
-    }
-  }
-
-  public spawnBot(options: BotSpawnOptions = {}): BotPlayer {
-    const color = PLAYER_COLORS[this.nextColor++ % PLAYER_COLORS.length];
-    const bot = createBotPlayer(options, color);
-    this.bots.set(bot.state.id, bot);
-
-    const ballPos = hitPoint(bot.state);
-    const ball = createBall(
-      `ball-${bot.state.id}`,
-      bot.state.id,
-      bot.state.color,
-      ballPos.x,
-      ballPos.y,
-    );
-    this.balls.set(ball.id, ball);
-
-    console.log(
-      `[golfi:server] +bot ${bot.state.id} "${bot.state.name}" at (${bot.state.x.toFixed(0)}, ${bot.state.y.toFixed(0)}) bots=${this.bots.size}`,
-    );
-
-    this.broadcast({
-      type: ServerMessageType.PlayerJoined,
-      player: bot.state,
-    });
-
-    return bot;
-  }
-
-  public spawnRandomBots(count: number): void {
-    for (let i = 0; i < count; i++) {
-      const margin = 300;
-      const x = margin + Math.random() * (WORLD_WIDTH - margin * 2);
-      const y = margin + Math.random() * (WORLD_HEIGHT - margin * 2);
-      this.spawnBot({
-        x,
-        y,
-        patrolRadius: 200 + Math.random() * 300,
+    // One pickup per effect card, side by side above the world center.
+    // Pickups persist — every player can grab each card once per slot.
+    for (const spawn of ITEM_PICKUP_SPAWNS) {
+      const id = `pickup-${spawn.itemId}`;
+      this.pickups.set(id, {
+        id,
+        itemId: spawn.itemId,
+        x: WORLD_WIDTH / 2 + spawn.dx,
+        y: WORLD_HEIGHT / 2 - ITEM_PICKUP_Y_OFFSET,
+        radius: ITEM_PICKUP_RADIUS,
       });
     }
-  }
-
-  public clearBots(): number {
-    const count = this.bots.size;
-    for (const bot of this.bots.values()) {
-      this.balls.delete(`ball-${bot.state.id}`);
-      this.broadcast({
-        type: ServerMessageType.PlayerLeft,
-        id: bot.state.id,
-      });
-    }
-    this.bots.clear();
-    console.log(`[golfi:server] cleared all bots (count=${count})`);
-    return count;
   }
 
   public getPlayerCount(): number {
@@ -286,6 +239,7 @@ export class World {
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
       trampolines: this.trampolineSnapshot(),
+      pickups: this.pickupSnapshot(),
       match: this.getMatchState(),
     });
 
@@ -451,22 +405,6 @@ export class World {
       case ClientMessageType.Chat: {
         const text = message.text.trim().slice(0, CHAT_MAX_LENGTH);
         if (!text) break;
-        if (text.startsWith("/spawn") || text.startsWith("/bot")) {
-          const parts = text.split(/\s+/);
-          const count = Math.min(20, Math.max(1, parseInt(parts[1], 10) || 1));
-          this.spawnRandomBots(count);
-          this.announce(
-            `${connection.state.name} spawned ${count} random golf player${count > 1 ? "s" : ""}!`,
-          );
-          break;
-        }
-        if (text === "/clearbots") {
-          const removed = this.clearBots();
-          this.announce(
-            `${connection.state.name} cleared ${removed} bot${removed === 1 ? "" : "s"}.`,
-          );
-          break;
-        }
         this.broadcast({
           type: ServerMessageType.Chat,
           id,
@@ -545,20 +483,20 @@ export class World {
       }
     }
 
-    for (const bot of this.bots.values()) {
-      stepBot(
-        bot,
-        dtSeconds,
-        WORLD_WIDTH,
-        WORLD_HEIGHT,
-        this.trampolines.values(),
-      );
+    // Walking into a pickup circle equips its item into the matching slot
+    for (const connection of this.connections.values()) {
+      for (const pickup of this.pickups.values()) {
+        const dist = Math.hypot(
+          connection.state.x - pickup.x,
+          connection.state.y - pickup.y,
+        );
+        if (dist <= pickup.radius) {
+          this.grantPickup(connection.state.id, pickup);
+        }
+      }
     }
 
-    const playerStates = [
-      ...Array.from(this.connections.values(), (c) => c.state),
-      ...Array.from(this.bots.values(), (b) => b.state),
-    ];
+    const playerStates = Array.from(this.connections.values(), (c) => c.state);
     for (const ball of this.balls.values()) {
       if (!ball.resting) {
         const shooterStats = ball.lastHitBy
@@ -597,7 +535,7 @@ export class World {
     if (this.ticks === 1 || this.ticks % (TICK_RATE_HZ * 10) === 0) {
       const first = this.connections.values().next().value;
       console.debug(
-        `[golfi:server] tick ${this.ticks}: ${this.connections.size} players, ${this.bots.size} bots, ${this.balls.size} balls` +
+        `[golfi:server] tick ${this.ticks}: ${this.connections.size} players, ${this.balls.size} balls` +
           (first
             ? ` e.g. "${first.state.name}" at (${first.state.x.toFixed(0)}, ${first.state.y.toFixed(0)})`
             : ""),
@@ -610,6 +548,7 @@ export class World {
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
       trampolines: this.trampolineSnapshot(),
+      pickups: this.pickupSnapshot(),
     };
     server.publish(this.topic, JSON.stringify(message));
   }
@@ -675,9 +614,6 @@ export class World {
         loadout: c.state.loadout ? { ...c.state.loadout } : undefined,
       });
     }
-    for (const b of this.bots.values()) {
-      list.push({ ...b.state });
-    }
     return list;
   }
 
@@ -691,6 +627,26 @@ export class World {
 
   private trampolineSnapshot(): TrampolineState[] {
     return Array.from(this.trampolines.values(), (t) => ({ ...t }));
+  }
+
+  private pickupSnapshot(): ItemPickupState[] {
+    return Array.from(this.pickups.values(), (p) => ({ ...p }));
+  }
+
+  /** Equips the pickup's item into its slot — a no-op if already equipped */
+  private grantPickup(playerId: string, pickup: ItemPickupState): void {
+    const connection = this.connections.get(playerId);
+    const item = getItem(pickup.itemId);
+    if (!connection || !item) return;
+    if (connection.state.loadout?.[item.slot] === item.id) return;
+    const loadout: PlayerLoadout = {
+      ...connection.state.loadout,
+      [item.slot]: item.id,
+    };
+    connection.state.loadout = loadout;
+    this.refreshStats(playerId, loadout);
+    this.syncOwnedBallColor(playerId);
+    this.announce(`${connection.state.name} picked up ${item.name}!`);
   }
 
   private sendTo(
@@ -711,7 +667,7 @@ export class World {
   }
 
   private getPlayerState(id: string): PlayerState | undefined {
-    return this.connections.get(id)?.state ?? this.bots.get(id)?.state;
+    return this.connections.get(id)?.state;
   }
 
   private handlePlayerKill(ball: BallState, victim: PlayerState): void {

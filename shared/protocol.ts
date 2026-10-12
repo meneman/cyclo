@@ -4,6 +4,7 @@ import type {
   PlayerSnapshot,
   HoleState,
   TrampolineState,
+  ItemPickupState,
   MatchState,
 } from "./types";
 
@@ -198,6 +199,7 @@ export type ServerMessage =
       balls: BallState[];
       holes: HoleState[];
       trampolines: TrampolineState[];
+      pickups: ItemPickupState[];
       match: MatchState;
     }
   | {
@@ -206,6 +208,7 @@ export type ServerMessage =
       balls: BallState[];
       holes: HoleState[];
       trampolines: TrampolineState[];
+      pickups: ItemPickupState[];
     }
   | { type: typeof ServerMessageType.PlayerJoined; player: PlayerSnapshot }
   | { type: typeof ServerMessageType.PlayerLeft; id: string }

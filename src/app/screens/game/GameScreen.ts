@@ -11,7 +11,11 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
-import { resolvePlayerColor, resolveStats } from "../../../../shared/items";
+import {
+  getItem,
+  resolvePlayerColor,
+  resolveStats,
+} from "../../../../shared/items";
 import {
   ClientMessageType,
   ServerMessageType,
@@ -21,6 +25,7 @@ import { directionFromInput, stepPlayer } from "../../../../shared/simulation";
 import { getTerrainAt } from "../../../../shared/terrain";
 import type {
   InputState,
+  ItemPickupState,
   MatchState,
   PlayerState,
   TrampolineState,
@@ -94,6 +99,8 @@ export class GameScreen extends Container {
   );
   private trampolines: TrampolineState[] = [];
   private readonly ballPredictor = new BallPredictor();
+  private pickups: ItemPickupState[] = [];
+  private readonly pickupLabels = new Map<string, Text>();
 
   private readonly entities = new Map<string, PlayerEntity>();
   private localId: string | null = null;
@@ -191,7 +198,7 @@ export class GameScreen extends Container {
         this.localState.color = color;
       }
       if (this.localId) {
-        this.entities.get(this.localId)?.setColor(color, false);
+        this.entities.get(this.localId)?.setColor(color);
         this.worldScene?.setColor(this.localId, color);
       }
     };
@@ -443,6 +450,7 @@ export class GameScreen extends Container {
     } else {
       this.worldScene.render(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, dtSeconds);
     }
+    this.positionPickupLabels();
 
     this.sendAccumulatorMs += ticker.deltaMS;
     if (this.sendAccumulatorMs >= INPUT_SEND_INTERVAL_MS) {
@@ -503,6 +511,7 @@ export class GameScreen extends Container {
     this.entities.clear();
     this.interpolator.clear();
     this.ballPredictor.clear();
+    this.clearPickupLabels();
 
     this.worldScene?.destroy();
     this.worldScene = null;
@@ -577,10 +586,14 @@ export class GameScreen extends Container {
           this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
         }
         this.trampolines = message.trampolines;
+        // Older servers don't send pickups yet — default instead of crashing.
+        this.pickups = message.pickups ?? [];
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncBalls(this.ballPredictor.getBalls());
         this.worldScene?.syncHoles(message.holes);
         this.worldScene?.syncTrampolines(message.trampolines);
+        this.worldScene?.syncPickups(this.pickups);
+        this.syncPickupLabels();
         for (const player of message.players) {
           this.spawnEntity(player);
         }
@@ -699,9 +712,13 @@ export class GameScreen extends Container {
         }
 
         this.trampolines = message.trampolines;
+        // Older servers don't send pickups yet — default instead of crashing.
+        this.pickups = message.pickups ?? [];
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncHoles(message.holes);
         this.worldScene?.syncTrampolines(message.trampolines);
+        this.worldScene?.syncPickups(this.pickups);
+        this.syncPickupLabels();
         this.reconcileLocalPlayer(message.players);
         // Names aren't part of the predicted/interpolated movement path —
         // the local player's Join (sent right after connect) always lands
@@ -713,9 +730,7 @@ export class GameScreen extends Container {
           const effectiveColor = resolvePlayerColor(stats, player.color);
           if (entity) {
             entity.setName(player.name);
-            const isBot =
-              player.id.startsWith("bot-") || player.name.startsWith("Bot ");
-            entity.setColor(effectiveColor, isBot);
+            entity.setColor(effectiveColor);
             this.worldScene?.setColor(player.id, effectiveColor);
           }
           if (player.id === this.localId && this.localState) {
@@ -815,9 +830,56 @@ export class GameScreen extends Container {
     this.entities.clear();
     this.interpolator.clear();
     this.ballPredictor.clear();
+    this.clearPickupLabels();
     this.worldScene?.clear();
     this.localState = null;
     this.currentPlayers = [];
+  }
+
+  /** Creates a floating effect label per pickup, drops labels for gone ones */
+  private syncPickupLabels(): void {
+    const alive = new Set(this.pickups.map((p) => p.id));
+    for (const [id, label] of this.pickupLabels) {
+      if (!alive.has(id)) {
+        label.destroy();
+        this.pickupLabels.delete(id);
+      }
+    }
+    for (const pickup of this.pickups) {
+      if (this.pickupLabels.has(pickup.id)) continue;
+      const item = getItem(pickup.itemId);
+      const label = new Text({
+        text: `${item?.name ?? pickup.itemId}\n${item?.description ?? ""}`,
+        style: {
+          fontFamily: "monospace",
+          fontSize: 12,
+          fill: 0xffffff,
+          stroke: { color: 0x000000, width: 3 },
+          align: "center",
+        },
+      });
+      label.anchor.set(0.5);
+      label.zIndex = 9;
+      this.pickupLabels.set(pickup.id, label);
+      this.addChild(label);
+    }
+  }
+
+  /** Pins each pickup label above its circle in screen space */
+  private positionPickupLabels(): void {
+    if (!this.worldScene) return;
+    for (const pickup of this.pickups) {
+      const label = this.pickupLabels.get(pickup.id);
+      if (!label) continue;
+      const { sx, sy } = this.worldScene.project(pickup.x, pickup.y);
+      label.position.set(sx, sy - 46);
+    }
+  }
+
+  private clearPickupLabels(): void {
+    for (const label of this.pickupLabels.values()) label.destroy();
+    this.pickupLabels.clear();
+    this.pickups = [];
   }
 
   /** Positions a player's overlay label from its world position */

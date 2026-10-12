@@ -28,7 +28,7 @@ export type MenuTab = "players" | "color" | "items" | "settings";
 
 /**
  * In-game menu overlay displaying:
- * 1. Players currently on the server (names, color swatches, bot/player tags, frags, holes)
+ * 1. Players currently on the server (names, color swatches, player tags, frags, holes)
  * 2. Color selection palette (12 colors, live update of golfer & ball)
  * 3. Settings panel (dummy controls for graphics, shadows, FPS, plus volume sliders)
  */
@@ -430,8 +430,6 @@ export class GameMenu extends Container {
       row.position.set(0, i * (rowHeight + 4));
 
       const isLocal = player.id === this.localPlayerId;
-      const isBot =
-        player.id.startsWith("bot-") || player.name.startsWith("Bot ");
 
       const rowBg = new Graphics();
       rowBg.roundRect(0, 0, rowWidth, rowHeight, 6);
@@ -465,7 +463,7 @@ export class GameMenu extends Container {
       nameText.position.set(38, rowHeight / 2);
       row.addChild(nameText);
 
-      // Tag Badge (YOU / BOT / PLAYER)
+      // Tag Badge (YOU / PLAYER)
       const badgeContainer = new Container();
       const badgeBg = new Graphics();
       let badgeLabel = "PLAYER";
@@ -477,11 +475,6 @@ export class GameMenu extends Container {
         badgeLabel = "YOU";
         badgeColor = 0x238636;
         badgeTextColor = 0xffffff;
-        badgeWidth = 42;
-      } else if (isBot) {
-        badgeLabel = "BOT";
-        badgeColor = 0x21262d;
-        badgeTextColor = 0x8b949e;
         badgeWidth = 42;
       }
 

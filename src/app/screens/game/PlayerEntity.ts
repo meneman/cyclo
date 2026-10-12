@@ -80,13 +80,9 @@ export class PlayerEntity extends Container {
     );
     this.mainUi.addChild(this.loadBubble);
 
-    const isBot =
-      snapshot.id.startsWith("bot-") || snapshot.name.startsWith("Bot ");
-    const indicatorColor = isBot ? 0xffffff : snapshot.color;
-
-    this.updateColorDot(indicatorColor);
+    this.updateColorDot(snapshot.color);
     this.edgeIndicator.visible = false;
-    this.drawEdgeIndicator(indicatorColor);
+    this.drawEdgeIndicator(snapshot.color);
     // Offset the arrow slightly so it's not exactly on the border
 
     this.addChild(this.mainUi);
@@ -121,10 +117,9 @@ export class PlayerEntity extends Container {
     this.colorDot.position.set(-halfWidth - 8, -HEAD_OFFSET_PX - 8);
   }
 
-  public setColor(color: number, isBot: boolean = false): void {
-    const indicatorColor = isBot ? 0xffffff : color;
-    this.drawEdgeIndicator(indicatorColor);
-    this.updateColorDot(indicatorColor);
+  public setColor(color: number): void {
+    this.drawEdgeIndicator(color);
+    this.updateColorDot(color);
   }
 
   public setScreenPosition(

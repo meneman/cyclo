@@ -68,4 +68,49 @@ describe("InputController", () => {
       globalThis.window = originalWindow;
     }
   });
+
+  test("window blur releases stuck keys so the player cannot pin into a wall", () => {
+    const listeners: Record<string, (e: unknown) => void> = {};
+    const originalWindow = globalThis.window;
+
+    globalThis.window = {
+      addEventListener: (type: string, listener: (e: unknown) => void) => {
+        listeners[type] = listener;
+      },
+      removeEventListener: (type: string) => {
+        delete listeners[type];
+      },
+    } as unknown as Window & typeof globalThis;
+
+    try {
+      const controller = new InputController();
+      const emitted: InputState[] = [];
+      controller.onChange = (state) => {
+        emitted.push({ ...state });
+      };
+
+      // Hold Right (run into the east wall), then lose window focus
+      // without any keyup — e.g. alt-tab while the key is down.
+      listeners.keydown?.({
+        code: "KeyD",
+        preventDefault: () => {},
+      });
+      assert.equal(controller.get().right, true);
+
+      listeners.blur?.({});
+      const released = controller.get();
+      assert.equal(released.up, false);
+      assert.equal(released.down, false);
+      assert.equal(released.left, false);
+      assert.equal(released.right, false);
+      assert.equal(released.charging, false);
+      assert.equal(emitted.length, 2);
+      assert.equal(emitted[1].right, false);
+
+      controller.destroy();
+      assert.equal(Object.keys(listeners).length, 0);
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
 });

@@ -53,8 +53,8 @@ describe("GameMenu", () => {
         holes: 1,
       },
       {
-        id: "bot-1",
-        name: "Bot Arnie",
+        id: "p2",
+        name: "Bob",
         x: 200,
         y: 200,
         color: PLAYER_COLORS[1],
