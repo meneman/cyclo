@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { getSharedToonGradient } from "./CharacterRoster";
 
 /**
  * Ball radius in world units. A true-to-scale ball next to the ~29u tall
@@ -19,7 +20,7 @@ const SPHERE_DETAIL = 5;
 /** Soft blob shadow under the ball, offset away from the sun */
 const SHADOW_RADIUS_FACTOR = 1.15;
 const SHADOW_OFFSET = new THREE.Vector2(-0.35, 0.2);
-const SHADOW_OPACITY = 0.35;
+const SHADOW_OPACITY = 0.45;
 
 /**
  * Evenly spreads `count` unit vectors over a sphere (Fibonacci lattice),
@@ -78,11 +79,10 @@ let sharedGeometry: THREE.BufferGeometry | null = null;
 let sharedShadowGeometry: THREE.CircleGeometry | null = null;
 let sharedRingGeometry: THREE.RingGeometry | null = null;
 
-/** Glossy white urethane cover */
-const ballMaterial = new THREE.MeshStandardMaterial({
-  color: 0xf7f7f2,
-  roughness: 0.35,
-  metalness: 0.0,
+/** White cel-shaded toon ball cover */
+const ballMaterial = new THREE.MeshToonMaterial({
+  color: 0xfcfcfc,
+  gradientMap: getSharedToonGradient(),
 });
 
 /**

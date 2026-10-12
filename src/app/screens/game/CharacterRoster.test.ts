@@ -7,6 +7,7 @@ import {
   Group,
   Mesh,
   MeshStandardMaterial,
+  MeshToonMaterial,
   Vector3,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -30,11 +31,19 @@ describe("characterForPlayerId", () => {
     }
   });
 
-  test("spreads players across more than one character", () => {
+  test("spreads players across available roster characters", () => {
     const picks = new Set(
       Array.from({ length: 50 }, (_, i) => characterForPlayerId(`player-${i}`)),
     );
-    assert.ok(picks.size > 1, "expected picks across the roster");
+    if (CHARACTER_ROSTER.length > 1) {
+      assert.ok(picks.size > 1, "expected picks across the roster");
+    } else {
+      assert.equal(
+        picks.size,
+        1,
+        "single character roster assigns all players to 0",
+      );
+    }
   });
 });
 
@@ -60,12 +69,13 @@ describe("roster model files", () => {
    * Guards the exact bug class that once hid every character: a model in the
    * wrong units (camera inside the mesh reads as green void + clipping
    * streaks). Each shipped GLB must parse, carry Idle/Walk, and stand at a
-   * sane height for CHARACTER_SCALE.
+   * sane height for the world scene (~28 units).
    */
   for (const entry of CHARACTER_ROSTER) {
     test(`${entry.id} loads with sane units and Idle/Walk clips`, async () => {
+      const filename = entry.url.split("/").pop() ?? `${entry.id}.glb`;
       const url = new URL(
-        `../../../../public/models/${entry.id}.glb`,
+        `../../../../public/models/${filename}`,
         import.meta.url,
       );
       const buf = readFileSync(url);
@@ -83,9 +93,10 @@ describe("roster model files", () => {
       const height = new Box3()
         .setFromObject(gltf.scene)
         .getSize(new Vector3()).y;
+      const effectiveHeight = height * (entry.scale ?? 0.06);
       assert.ok(
-        height > 100 && height < 1000,
-        `expected model height in the hundreds of units, got ${height}`,
+        effectiveHeight > 15 && effectiveHeight < 45,
+        `expected effective height around ~28 units, got ${effectiveHeight}`,
       );
       for (const kind of ["Idle", "Walk"]) {
         assert.ok(pickClip(gltf.animations, kind), `expected an *${kind} clip`);
@@ -95,6 +106,59 @@ describe("roster model files", () => {
 });
 
 describe("tuneCharacterMaterials", () => {
+  test("tunes robot variants with distinct colors and morph targets", async () => {
+    const url = new URL(
+      "../../../../public/models/robot-expressive.glb",
+      import.meta.url,
+    );
+    const buf = readFileSync(url);
+    const gltf = await new Promise<{ scene: Group }>((resolve, reject) => {
+      new GLTFLoader().parse(
+        buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+        "",
+        resolve,
+        reject,
+      );
+    });
+
+    tuneCharacterMaterials(gltf.scene, "robot-cyber", null, "cyber");
+
+    let foundMain = false;
+    let morphAngrySet = false;
+    gltf.scene.traverse((child) => {
+      if (child instanceof Mesh && child.material) {
+        const mat = child.material as MeshToonMaterial;
+        if (mat.name === "Main") {
+          foundMain = true;
+          assert.equal(
+            mat.color.getHex(),
+            0xe11d48,
+            "cyber bot must be crimson",
+          );
+        }
+      }
+      if (
+        child instanceof Mesh &&
+        child.morphTargetDictionary &&
+        child.morphTargetInfluences
+      ) {
+        const angryIdx = child.morphTargetDictionary["Angry"];
+        if (
+          angryIdx !== undefined &&
+          child.morphTargetInfluences[angryIdx] > 0.5
+        ) {
+          morphAngrySet = true;
+        }
+      }
+    });
+
+    assert.ok(foundMain, "robot should have Main material");
+    assert.ok(
+      morphAngrySet,
+      "cyber bot should have Angry morph target activated",
+    );
+  });
+
   test("re-tints female-casual shirt away from green to coral-red and clears emissive", async () => {
     const url = new URL(
       "../../../../public/models/female-casual.glb",
@@ -112,11 +176,16 @@ describe("tuneCharacterMaterials", () => {
     tuneCharacterMaterials(gltf.scene, "female-casual");
 
     let foundShirt = false;
+    let toonCount = 0;
     gltf.scene.traverse((child) => {
       if (
         child instanceof Mesh &&
-        child.material instanceof MeshStandardMaterial
+        (child.material instanceof MeshToonMaterial ||
+          child.material instanceof MeshStandardMaterial)
       ) {
+        if (child.material instanceof MeshToonMaterial) {
+          toonCount++;
+        }
         assert.equal(
           child.material.emissive.getHex(),
           0x000000,
@@ -133,5 +202,9 @@ describe("tuneCharacterMaterials", () => {
       }
     });
     assert.ok(foundShirt, "female-casual should have a Shirt material");
+    assert.ok(
+      toonCount > 0,
+      "materials should be converted to MeshToonMaterial",
+    );
   });
 });

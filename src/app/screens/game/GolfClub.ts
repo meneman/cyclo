@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { getSharedToonGradient } from "./CharacterRoster";
 
 /**
  * Shared geometries for the procedural golf club. Reused across all player
@@ -14,32 +15,28 @@ const shaftGeometry = new THREE.CylinderGeometry(0.056, 0.04, 1.55, 8);
 const hoselGeometry = new THREE.CylinderGeometry(0.044, 0.052, 0.1, 8);
 const headGeometry = new THREE.BoxGeometry(0.2, 0.14, 0.32);
 
-/** Matte dark rubber grip material */
-const gripMaterial = new THREE.MeshStandardMaterial({
-  color: 0x1a1c1e,
-  roughness: 0.85,
-  metalness: 0.05,
+/** Matte dark rubber grip material (toon cel-shaded) */
+const gripMaterial = new THREE.MeshToonMaterial({
+  color: 0x181a1c,
+  gradientMap: getSharedToonGradient(),
 });
 
-/** White decorative ferrule ring */
-const ferruleMaterial = new THREE.MeshStandardMaterial({
+/** White decorative ferrule ring (toon cel-shaded) */
+const ferruleMaterial = new THREE.MeshToonMaterial({
   color: 0xffffff,
-  roughness: 0.5,
-  metalness: 0.1,
+  gradientMap: getSharedToonGradient(),
 });
 
-/** Polished chrome/steel shaft material */
-const shaftMaterial = new THREE.MeshStandardMaterial({
+/** Polished chrome/steel shaft material (toon cel-shaded) */
+const shaftMaterial = new THREE.MeshToonMaterial({
   color: 0xd8dce2,
-  roughness: 0.25,
-  metalness: 0.85,
+  gradientMap: getSharedToonGradient(),
 });
 
-/** Brushed metal clubhead material */
-const headMaterial = new THREE.MeshStandardMaterial({
+/** Brushed metal clubhead material (toon cel-shaded) */
+const headMaterial = new THREE.MeshToonMaterial({
   color: 0xc4c9d0,
-  roughness: 0.35,
-  metalness: 0.8,
+  gradientMap: getSharedToonGradient(),
 });
 
 /**
@@ -190,17 +187,25 @@ export function calculateClubRotationZ(
 }
 
 /**
- * Attaches a newly created golf club to the character scene's right hand bone (PalmR).
+ * Attaches a newly created golf club to the character scene's right hand bone.
+ * Supports Quaternius armatures (PalmR) and standard rigs like RobotExpressive (Palm1R, HandR).
  *
  * @param characterScene The cloned character model hierarchy
- * @returns true if the bone was found and the club attached, false otherwise
+ * @returns true if a hand bone was found and the club attached, false otherwise
  */
 export function attachGolfClub(characterScene: THREE.Object3D): boolean {
-  const palm = characterScene.getObjectByName("PalmR");
+  const palm =
+    characterScene.getObjectByName("PalmR") ??
+    characterScene.getObjectByName("Palm1R") ??
+    characterScene.getObjectByName("HandR");
   if (!palm) {
     return false;
   }
   const club = createGolfClub();
+  if (palm.name !== "PalmR") {
+    // Standard GLTF rigs like RobotExpressive use armature bone scaling of 100
+    club.scale.setScalar(0.01);
+  }
   palm.add(club);
   return true;
 }

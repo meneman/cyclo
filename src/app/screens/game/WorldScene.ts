@@ -24,6 +24,7 @@ import type { RenderBall } from "../../../net/BallPredictor";
 import type { CharacterTemplate } from "./CharacterRoster";
 import {
   characterForPlayerId,
+  getSharedToonGradient,
   loadCharacterTemplates,
   pickClip,
 } from "./CharacterRoster";
@@ -44,7 +45,7 @@ import {
 /** World-to-screen scale — how many screen px one world unit covers (1920 / 640 = 3) */
 const CAMERA_ZOOM = 3;
 /** World units covered by one repeating tile of the ground texture */
-const FIELD_TILE_SIZE = 80;
+const FIELD_TILE_SIZE = 75;
 
 export interface CourtTheme {
   /** Ground base tint, multiplied by fieldTextureUrl */
@@ -57,10 +58,22 @@ export interface CourtTheme {
   sunIntensity: number;
   sunColor: number;
   hemiIntensity: number;
+  hemiSkyColor?: number;
   hemiGroundColor: number;
 }
 
 export const COURT_THEMES = {
+  /** Vibrant cel-shaded cartoon field with low-poly faceted turf and sunny warmth */
+  cartoon: {
+    roughTint: 0x48c438,
+    backdrop: 0x091322,
+    fieldTextureUrl: `${import.meta.env.BASE_URL}textures/grass_faceted.png`,
+    sunIntensity: 2.0,
+    sunColor: 0xfff6dd,
+    hemiIntensity: 1.1,
+    hemiSkyColor: 0xcfe6ff,
+    hemiGroundColor: 0x22551a,
+  },
   /** Rocky terrain — natural rocky ground using the 4K texture set */
   rockyTerrain: {
     roughTint: 0xffffff,
@@ -106,7 +119,7 @@ export const COURT_THEMES = {
 export type CourtThemeName = keyof typeof COURT_THEMES;
 
 /** Active ground and lighting theme */
-export const ACTIVE_COURT_THEME: CourtThemeName = "rockyTerrain";
+export const ACTIVE_COURT_THEME: CourtThemeName = "cartoon";
 
 const THEME: CourtTheme = COURT_THEMES[ACTIVE_COURT_THEME];
 /** Fallback marker color when a character template fails to load */
@@ -144,21 +157,29 @@ export function yawForDirection(dx: number, dy: number): number {
 }
 
 /**
- * Height of the central lamp above the ground, in world units. Deliberately
- * low next to the ~28u characters so shadows stretch long toward the edges.
+ * Height of arena lamps above the ground, in world units. Deliberately
+ * low next to the ~28u characters so shadows stretch toward the edges.
  */
-export const CENTRAL_LIGHT_HEIGHT = 60;
-/** Warm tint for the central lamp */
-export const CENTRAL_LIGHT_COLOR = 0xffe0b3;
-/** Central lamp brightness (decay=1 falloff, see constructor) */
-export const CENTRAL_LIGHT_INTENSITY = 30;
+export const LIGHT_HEIGHT = 60;
+export const CENTRAL_LIGHT_HEIGHT = LIGHT_HEIGHT;
+/** Warm tint for the arena lamps */
+export const LIGHT_COLOR = 0xffe0b3;
+export const CENTRAL_LIGHT_COLOR = LIGHT_COLOR;
+/** Arena lamp brightness per light (decay=1 falloff, see constructor) */
+export const LIGHT_INTENSITY = 25;
+export const CENTRAL_LIGHT_INTENSITY = LIGHT_INTENSITY;
 
-/** Warm tint for the visible pool of light on the ground at map center */
+/** Positions for the left and right arena lights */
+export const LIGHT_LEFT_X = WORLD_WIDTH * 0.25;
+export const LIGHT_RIGHT_X = WORLD_WIDTH * 0.75;
+export const LIGHT_Y = WORLD_HEIGHT / 2;
+
+/** Warm tint for the visible pool of light on the ground under each lamp */
 export const LIGHT_POOL_COLOR = 0xffdf9e;
-/** Radius of the visible light pool in world units */
-export const LIGHT_POOL_RADIUS = 250;
-/** Peak brightness of the light pool (additive, fades to the edges) */
-export const LIGHT_POOL_OPACITY = 0.55;
+/** Radius of each visible light pool in world units */
+export const LIGHT_POOL_RADIUS = 200;
+/** Peak brightness of each light pool (additive, fades to the edges) */
+export const LIGHT_POOL_OPACITY = 0.45;
 /** Pool sits above terrain but below shadows/indicators so both read */
 const LIGHT_POOL_ELEVATION = 0.015;
 /** Ground elevation of player shadows: above field/terrain, below indicators */
@@ -174,13 +195,12 @@ const SHADOW_WIDTH = 13;
 /** Shadow center offset per (distance-from-center / light-height) unit */
 const SHADOW_OFFSET_FACTOR = 3;
 /** Shadow opacity under the lamp, fading out to the edges */
-const SHADOW_CENTER_OPACITY = 0.38;
-const SHADOW_EDGE_OPACITY = 0.25;
+const SHADOW_CENTER_OPACITY = 0.42;
+const SHADOW_EDGE_OPACITY = 0.28;
 
 /**
- * Builds a soft radial alpha texture (solid center fading to transparent
- * edges) so blob shadows render as ellipses, not hard rectangles. The mesh
- * scale stretches the circle into the outward-pointing ellipse.
+ * Builds a stylized comic-book radial alpha texture (solid disk with a crisp
+ * falloff edge) so blob shadows render as defined cartoon cel-shadow ellipses.
  */
 function makeRadialShadowTexture(): THREE.Texture {
   const size = 128;
@@ -197,7 +217,8 @@ function makeRadialShadowTexture(): THREE.Texture {
     size / 2,
   );
   gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.55, "rgba(255,255,255,0.55)");
+  gradient.addColorStop(0.8, "rgba(255,255,255,0.92)");
+  gradient.addColorStop(0.92, "rgba(255,255,255,0.35)");
   gradient.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
@@ -280,6 +301,7 @@ interface PlayerView {
   bloodStain: THREE.Group;
   knockedDown: boolean;
   shadow: THREE.Mesh;
+  baseScale: number;
 }
 
 /**
@@ -311,14 +333,15 @@ export class WorldScene {
   private readonly shadowGeometry = new THREE.PlaneGeometry(1, 1);
   /** Soft radial alpha map shared by all blob shadows */
   private readonly shadowTexture: THREE.Texture;
-  /** Warm pool of light on the ground under the central lamp */
-  private readonly lightPool: THREE.Mesh;
+  /** Warm pools of light on the ground under the left and right lamps */
+  private readonly lightPoolLeft: THREE.Mesh;
+  private readonly lightPoolRight: THREE.Mesh;
   private readonly fieldGeometry = new THREE.PlaneGeometry(
     WORLD_WIDTH,
     WORLD_HEIGHT,
   );
   private readonly fieldTexture: THREE.Texture;
-  private readonly fieldMaterial: THREE.MeshStandardMaterial;
+  private readonly fieldMaterial: THREE.MeshToonMaterial;
 
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
@@ -352,53 +375,71 @@ export class WorldScene {
       document.body;
     mountContainer.appendChild(canvas);
 
-    this.scene.background = new THREE.Color(0x000000);
+    this.scene.background = new THREE.Color(THEME.backdrop);
     this.scene.add(
       new THREE.HemisphereLight(
-        0xffffff,
+        THEME.hemiSkyColor ?? 0xffffff,
         THEME.hemiGroundColor,
         THEME.hemiIntensity,
       ),
     );
-    const sun = new THREE.DirectionalLight(THEME.sunColor, THEME.sunIntensity);
-    sun.position.set(200, -100, 300);
-    this.scene.add(sun);
-    // Low lamp over the map center: warm falloff players' shadows point away
-    // from. decay=1 keeps the gradient gentle across thousand-unit distances
-    // (decay=2 would collapse to a tiny bright pool under the lamp).
-    const central = new THREE.PointLight(
-      CENTRAL_LIGHT_COLOR,
-      CENTRAL_LIGHT_INTENSITY,
-      0,
-      1,
+    // Primary key sun from top-right creates strong directional light for cel-shading banding
+    const sunRight = new THREE.DirectionalLight(
+      THEME.sunColor,
+      THEME.sunIntensity * 1.1,
     );
-    central.position.set(
-      WORLD_WIDTH / 2,
-      -WORLD_HEIGHT / 2,
-      CENTRAL_LIGHT_HEIGHT,
+    sunRight.position.set(220, -120, 280);
+    this.scene.add(sunRight);
+
+    // Soft sky fill from the left prevents pitch-black unlit areas while preserving cel-shading
+    const sunLeft = new THREE.DirectionalLight(
+      THEME.hemiSkyColor ?? 0xdbeafe,
+      THEME.sunIntensity * 0.25,
     );
-    this.scene.add(central);
-    // Visible pool of light on the ground under the lamp: same soft radial
-    // texture as the shadows, additively blended so the middle reads bright
-    // and it fades into the dark field toward the edges.
-    this.lightPool = new THREE.Mesh(
-      new THREE.PlaneGeometry(LIGHT_POOL_RADIUS * 2, LIGHT_POOL_RADIUS * 2),
-      new THREE.MeshBasicMaterial({
-        color: LIGHT_POOL_COLOR,
-        map: this.shadowTexture,
-        transparent: true,
-        opacity: LIGHT_POOL_OPACITY,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
+    sunLeft.position.set(-200, -80, 220);
+    this.scene.add(sunLeft);
+
+    // Two arena lamps (one left, one right): warm falloff illuminating both sides of the arena.
+    // decay=1 keeps the gradient gentle across distances.
+    const lightLeft = new THREE.PointLight(LIGHT_COLOR, LIGHT_INTENSITY, 0, 1);
+    lightLeft.position.set(LIGHT_LEFT_X, -LIGHT_Y, LIGHT_HEIGHT);
+    this.scene.add(lightLeft);
+
+    const lightRight = new THREE.PointLight(LIGHT_COLOR, LIGHT_INTENSITY, 0, 1);
+    lightRight.position.set(LIGHT_RIGHT_X, -LIGHT_Y, LIGHT_HEIGHT);
+    this.scene.add(lightRight);
+
+    // Visible pools of light on the ground under the left and right lamps:
+    // soft radial texture, additively blended so both halves read warm and bright.
+    const poolGeometry = new THREE.PlaneGeometry(
+      LIGHT_POOL_RADIUS * 2,
+      LIGHT_POOL_RADIUS * 2,
     );
-    this.lightPool.position.set(
-      WORLD_WIDTH / 2,
-      -WORLD_HEIGHT / 2,
+    const poolMaterial = new THREE.MeshBasicMaterial({
+      color: LIGHT_POOL_COLOR,
+      map: this.shadowTexture,
+      transparent: true,
+      opacity: LIGHT_POOL_OPACITY,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.lightPoolLeft = new THREE.Mesh(poolGeometry, poolMaterial);
+    this.lightPoolLeft.position.set(
+      LIGHT_LEFT_X,
+      -LIGHT_Y,
       LIGHT_POOL_ELEVATION,
     );
-    this.lightPool.renderOrder = 0;
-    this.scene.add(this.lightPool);
+    this.lightPoolLeft.renderOrder = 0;
+    this.scene.add(this.lightPoolLeft);
+
+    this.lightPoolRight = new THREE.Mesh(poolGeometry, poolMaterial);
+    this.lightPoolRight.position.set(
+      LIGHT_RIGHT_X,
+      -LIGHT_Y,
+      LIGHT_POOL_ELEVATION,
+    );
+    this.lightPoolRight.renderOrder = 0;
+    this.scene.add(this.lightPoolRight);
 
     this.fieldTexture = new THREE.TextureLoader().load(THEME.fieldTextureUrl);
     this.fieldTexture.colorSpace = THREE.SRGBColorSpace;
@@ -408,11 +449,10 @@ export class WorldScene {
       WORLD_WIDTH / FIELD_TILE_SIZE,
       WORLD_HEIGHT / FIELD_TILE_SIZE,
     );
-    this.fieldMaterial = new THREE.MeshStandardMaterial({
+    this.fieldMaterial = new THREE.MeshToonMaterial({
       map: this.fieldTexture,
       color: THEME.roughTint,
-      roughness: 0.95,
-      metalness: 0.0,
+      gradientMap: getSharedToonGradient(),
     });
 
     const field = new THREE.Mesh(this.fieldGeometry, this.fieldMaterial);
@@ -479,7 +519,8 @@ export class WorldScene {
         const height = new THREE.Box3()
           .setFromObject(template.scene)
           .getSize(new THREE.Vector3()).y;
-        const scaledHeight = height * CHARACTER_SCALE;
+        const baseScale = template.scale ?? CHARACTER_SCALE;
+        const scaledHeight = height * baseScale;
         console.info(
           `[golfi:scene] template loaded: ${template.id} (${template.clips.length} clips [${template.clips.map((c) => c.name).join(", ")}], raw height ${height.toFixed(1)}u -> scaled ${scaledHeight.toFixed(1)}u vs camera z=${this.camera.position.z})`,
         );
@@ -561,7 +602,7 @@ export class WorldScene {
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, z ?? 0);
     const clampedPlayerScale = Math.min(Math.max(playerScaleMult, 0.3), 5.0);
-    view.yaw.scale.setScalar(CHARACTER_SCALE * clampedPlayerScale);
+    view.yaw.scale.setScalar(view.baseScale * clampedPlayerScale);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
     this.updateShadow(view, x, y, clampedPlayerScale);
 
@@ -873,8 +914,8 @@ export class WorldScene {
     this.dotMaterial.dispose();
     this.shadowGeometry.dispose();
     this.shadowTexture.dispose();
-    this.lightPool.geometry.dispose();
-    (this.lightPool.material as THREE.Material).dispose();
+    this.lightPoolLeft.geometry.dispose();
+    (this.lightPoolLeft.material as THREE.Material).dispose();
     this.fieldGeometry.dispose();
     this.fieldMaterial.dispose();
     this.fieldTexture.dispose();
@@ -897,7 +938,11 @@ export class WorldScene {
     const view = this.players.get(id);
     if (!view || !view.body) return;
     view.body.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
+      if (
+        child instanceof THREE.Mesh &&
+        child.material &&
+        !child.name.endsWith("_Outline")
+      ) {
         const materials = Array.isArray(child.material)
           ? child.material
           : [child.material];
@@ -912,9 +957,9 @@ export class WorldScene {
               } else {
                 child.material = cloned;
               }
-              (cloned as THREE.MeshStandardMaterial).color.setHex(color);
+              (cloned as THREE.MeshToonMaterial).color.setHex(color);
             } else {
-              (mat as THREE.MeshStandardMaterial).color.setHex(color);
+              (mat as THREE.MeshToonMaterial).color.setHex(color);
             }
           }
         }
@@ -929,11 +974,13 @@ export class WorldScene {
     charIndex: number,
     color?: number,
   ): void {
+    const template = this.templates?.[charIndex] ?? null;
+    const baseScale = template?.scale ?? CHARACTER_SCALE;
+
     const yaw = new THREE.Group();
     yaw.position.set(x, -y, 0);
-    yaw.scale.setScalar(CHARACTER_SCALE);
+    yaw.scale.setScalar(baseScale);
 
-    const template = this.templates?.[charIndex] ?? null;
     let mixer: THREE.AnimationMixer | null = null;
     let idle: THREE.AnimationAction | null = null;
     let walk: THREE.AnimationAction | null = null;
@@ -953,11 +1000,11 @@ export class WorldScene {
       walk = this.action(mixer, template, "Walk", id);
       idle?.play();
       console.info(
-        `[golfi:scene] spawn ${id} as ${template.id} at (${x.toFixed(0)}, ${y.toFixed(0)}) scale=${CHARACTER_SCALE} idle=${Boolean(idle)} walk=${Boolean(walk)}`,
+        `[golfi:scene] spawn ${id} as ${template.id} at (${x.toFixed(0)}, ${y.toFixed(0)}) scale=${baseScale} idle=${Boolean(idle)} walk=${Boolean(walk)}`,
       );
     } else {
       yaw.add(new THREE.Mesh(this.dotGeometry, this.dotMaterial));
-      const dotRadius = PLAYER_RADIUS * CHARACTER_SCALE;
+      const dotRadius = PLAYER_RADIUS * baseScale;
       console.warn(
         `[golfi:scene] spawn ${id} as fallback dot (no template for charIndex=${charIndex}); effective dot radius ${dotRadius.toFixed(2)}u — nearly invisible at zoom ${CAMERA_ZOOM}`,
       );
@@ -1001,6 +1048,7 @@ export class WorldScene {
       bloodStain,
       knockedDown: false,
       shadow,
+      baseScale,
     };
     this.players.set(id, view);
     this.updateShadow(view, x, y, 1);

@@ -142,4 +142,30 @@ describe("GolfClub", () => {
     assert.ok(palm);
     assert.ok(palm?.getObjectByName("GolfClub"));
   });
+
+  test("attachGolfClub attaches properly to real robot-expressive model", async () => {
+    const url = new URL(
+      "../../../../public/models/robot-expressive.glb",
+      import.meta.url,
+    );
+    const buffer = readFileSync(url);
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    );
+
+    const loader = new GLTFLoader();
+    const gltf = await loader.parseAsync(arrayBuffer, "");
+    const cloned = cloneSkinned(gltf.scene);
+
+    const attached = attachGolfClub(cloned);
+    assert.equal(attached, true);
+
+    const palm =
+      cloned.getObjectByName("Palm1R") ?? cloned.getObjectByName("HandR");
+    assert.ok(palm);
+    const club = palm?.getObjectByName("GolfClub");
+    assert.ok(club);
+    assert.equal(club.scale.x, 0.01);
+  });
 });

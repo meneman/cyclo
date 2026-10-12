@@ -63,6 +63,14 @@ kanban-plugin: board
 
 ## done
 
+- [x] Stylized Cartoon Look (Cel-Shading, Outlines, Sharp Shadows & Faceted Grass)
+  - Scope: Transform 3D scene from realistic PBR/rock texture to vibrant stylized cartoon/cel-shaded aesthetics.
+  - Cel-Shading: Convert character models, golf club, golf ball, and ground to `MeshToonMaterial` with discrete 3-tone gradient ramp texture.
+  - Comic Outlines: Inverted hull outline meshes for characters with normal extrusion along bones, plus ball silhouette.
+  - Field: Switch active court theme to `cartoon` using low-poly faceted grass (`grass_faceted.png`) with vibrant green tint and stylized lighting.
+  - Shadows: Sharpen radial shadow masks to create crisp, defined comic-book ground shadows.
+  - Erledigt 2026-10-12: Cartoon-Look vollständig umgesetzt. Bodentextur auf `grass_faceted.png` mit Cel-Shading-Bodenmaterial und warmem Sonnenlicht umgestellt. Spielfiguren und Golfschläger nutzen prozedurale `MeshToonMaterial`-Shader mit 3-Stufen-Gradient-Ramp. Inverted-Hull-Outlines an den SkinnedMeshes binden dynamisch an die Skelette für saubere Comic-Konturen bei allen Animationen. Golfball mit Toon-Material und Silhouette versehen, Schattenkanten stilisiert geschärft. 166/166 Tests grün (`bun test`), ESLint, Server tsc und Vite Production Build fehlerfrei. Checkliste in `docs/local/MANUAL_TESTS.md` hinterlegt.
+
 - [x] Single-View Fixed-Camera Arena & Centered Spawn
   - Scope: Refactor the game world into a compact single-screen arena ($600 \times 380$) where the entire course fits in a single view with no camera scrolling, no zoom, and centered player spawns.
   - Camera: Three.js orthographic camera permanently anchored to arena center $(300, 190)$ with fixed zoom (`CAMERA_ZOOM = 2.6`). Follow-camera motion and zoom disabled.
