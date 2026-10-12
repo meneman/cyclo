@@ -44,6 +44,12 @@ export class InputController {
     // held): without this the direction stays stuck and the player keeps
     // pushing into the wall after returning.
     window.addEventListener("blur", this.onBlur);
+    // Opening context menu (right click) suppresses default browser menu and
+    // clears held keys so keys don't get locked stuck if keyup is swallowed.
+    window.addEventListener("contextmenu", this.onContextMenu);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.onVisibilityChange);
+    }
   }
 
   public get(): InputState {
@@ -61,6 +67,10 @@ export class InputController {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("blur", this.onBlur);
+    window.removeEventListener("contextmenu", this.onContextMenu);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    }
   }
 
   /** Clears every held flag, notifying once when anything was held */
@@ -83,6 +93,17 @@ export class InputController {
 
   private readonly onBlur = (): void => {
     this.releaseAll();
+  };
+
+  private readonly onContextMenu = (event?: Event): void => {
+    event?.preventDefault();
+    this.releaseAll();
+  };
+
+  private readonly onVisibilityChange = (): void => {
+    if (typeof document !== "undefined" && document.hidden) {
+      this.releaseAll();
+    }
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {

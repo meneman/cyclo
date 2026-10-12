@@ -106,9 +106,9 @@ describe("roster model files", () => {
 });
 
 describe("tuneCharacterMaterials", () => {
-  test("tunes robot variants with distinct colors and morph targets", async () => {
+  test("tunes male-casual shirt to sky-blue and converts to toon materials", async () => {
     const url = new URL(
-      "../../../../public/models/robot-expressive.glb",
+      "../../../../public/models/male-casual.glb",
       import.meta.url,
     );
     const buf = readFileSync(url);
@@ -121,41 +121,34 @@ describe("tuneCharacterMaterials", () => {
       );
     });
 
-    tuneCharacterMaterials(gltf.scene, "robot-cyber", null, "cyber");
+    tuneCharacterMaterials(gltf.scene, "male-casual");
 
-    let foundMain = false;
-    let morphAngrySet = false;
+    let foundShirt = false;
+    let toonCount = 0;
     gltf.scene.traverse((child) => {
-      if (child instanceof Mesh && child.material) {
-        const mat = child.material as MeshToonMaterial;
-        if (mat.name === "Main") {
-          foundMain = true;
-          assert.equal(
-            mat.color.getHex(),
-            0xe11d48,
-            "cyber bot must be crimson",
-          );
-        }
-      }
       if (
         child instanceof Mesh &&
-        child.morphTargetDictionary &&
-        child.morphTargetInfluences
+        (child.material instanceof MeshToonMaterial ||
+          child.material instanceof MeshStandardMaterial)
       ) {
-        const angryIdx = child.morphTargetDictionary["Angry"];
-        if (
-          angryIdx !== undefined &&
-          child.morphTargetInfluences[angryIdx] > 0.5
-        ) {
-          morphAngrySet = true;
+        if (child.material instanceof MeshToonMaterial) {
+          toonCount++;
+        }
+        if (child.material.name === "Shirt") {
+          foundShirt = true;
+          assert.equal(
+            child.material.color.getHex(),
+            0x0284c7,
+            "male-casual shirt must be sky-blue",
+          );
         }
       }
     });
 
-    assert.ok(foundMain, "robot should have Main material");
+    assert.ok(foundShirt, "male-casual should have a Shirt material");
     assert.ok(
-      morphAngrySet,
-      "cyber bot should have Angry morph target activated",
+      toonCount > 0,
+      "materials should be converted to MeshToonMaterial",
     );
   });
 

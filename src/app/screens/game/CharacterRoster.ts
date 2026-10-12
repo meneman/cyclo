@@ -10,9 +10,6 @@ import {
   RGBAFormat,
 } from "three";
 
-export type RobotVariant = "classic" | "retro" | "cyber";
-
-/** One playable character: a stylized 3D model. */
 export interface CharacterEntry {
   /** Stable id, also used for deterministic per-player assignment */
   id: string;
@@ -22,8 +19,6 @@ export interface CharacterEntry {
   url: string;
   /** Base scale factor to normalize model height to ~28-29 world units */
   scale?: number;
-  /** Visual styling and facial expression personality variant */
-  variant?: RobotVariant;
 }
 
 export interface CharacterTemplate extends CharacterEntry {
@@ -33,25 +28,16 @@ export interface CharacterTemplate extends CharacterEntry {
 
 export const CHARACTER_ROSTER: readonly CharacterEntry[] = [
   {
-    id: "robot-expressive",
-    name: "Classic Bot",
-    url: `${import.meta.env.BASE_URL}models/robot-expressive.glb`,
-    scale: 6.0,
-    variant: "classic",
+    id: "female-casual",
+    name: "Female Golfer",
+    url: `${import.meta.env.BASE_URL}models/female-casual.glb`,
+    scale: 0.06,
   },
   {
-    id: "robot-retro",
-    name: "Retro Gold Bot",
-    url: `${import.meta.env.BASE_URL}models/robot-expressive.glb`,
-    scale: 6.0,
-    variant: "retro",
-  },
-  {
-    id: "robot-cyber",
-    name: "Cyber Stealth Bot",
-    url: `${import.meta.env.BASE_URL}models/robot-expressive.glb`,
-    scale: 6.0,
-    variant: "cyber",
+    id: "male-casual",
+    name: "Male Golfer",
+    url: `${import.meta.env.BASE_URL}models/male-casual.glb`,
+    scale: 0.06,
   },
 ];
 
@@ -142,31 +128,9 @@ export function tuneCharacterMaterials(
   scene: Group,
   characterId: string,
   gradientMap?: Texture | null,
-  variant: RobotVariant = "classic",
 ): void {
   const ramp =
     gradientMap !== undefined ? gradientMap : getSharedToonGradient();
-
-  // Apply facial expression morph targets based on robot variant personality
-  scene.traverse((child) => {
-    if (
-      child instanceof Mesh &&
-      child.morphTargetDictionary &&
-      child.morphTargetInfluences
-    ) {
-      if (variant === "retro") {
-        const idx = child.morphTargetDictionary["Surprised"];
-        if (idx !== undefined) {
-          child.morphTargetInfluences[idx] = 0.85;
-        }
-      } else if (variant === "cyber") {
-        const idx = child.morphTargetDictionary["Angry"];
-        if (idx !== undefined) {
-          child.morphTargetInfluences[idx] = 0.85;
-        }
-      }
-    }
-  });
 
   scene.traverse((child) => {
     if (
@@ -186,28 +150,6 @@ export function tuneCharacterMaterials(
             color = new Color(
               characterId === "female-casual" ? 0xe05638 : 0x0284c7,
             );
-          } else if (standardMat.name === "Main") {
-            if (variant === "retro") {
-              color = new Color(0xf59e0b); // Warm amber / golden chassis
-            } else if (variant === "cyber") {
-              color = new Color(0xe11d48); // High-tech crimson / ruby chassis
-            } else {
-              color = new Color(0x0ea5e9); // Vibrant sky blue / cyan
-            }
-          } else if (standardMat.name === "Grey") {
-            if (variant === "retro") {
-              color = new Color(0x78350f); // Warm vintage brass/bronze joints
-            } else if (variant === "cyber") {
-              color = new Color(0x334155); // Dark gunmetal slate mechanics
-            } else {
-              color = new Color(0x94a3b8); // Metallic silver
-            }
-          } else if (standardMat.name === "Black") {
-            if (variant === "cyber") {
-              color = new Color(0x09090b); // Deep obsidian visor
-            } else {
-              color = new Color(0x1e293b);
-            }
           } else {
             const cartoonHex = CARTOON_PART_COLORS[standardMat.name];
             if (cartoonHex !== undefined) {
@@ -259,7 +201,7 @@ export async function loadCharacterTemplates(): Promise<
       try {
         console.debug(`[golfi:roster] fetching ${entry.id} from ${entry.url}`);
         const gltf = await loader.loadAsync(entry.url);
-        tuneCharacterMaterials(gltf.scene, entry.id, undefined, entry.variant);
+        tuneCharacterMaterials(gltf.scene, entry.id);
         console.info(
           `[golfi:roster] loaded ${entry.id}: ${gltf.scene.children.length} root children, ${gltf.animations.length} clips [${gltf.animations.map((c) => c.name).join(", ")}]`,
         );
