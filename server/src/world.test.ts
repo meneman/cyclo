@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, test } from "bun:test";
 import type { ServerWebSocket } from "bun";
+import type { BallState, PlayerSnapshot } from "../../shared/types";
 import type { SocketData } from "./world";
 import { World } from "./world";
+
+/**
+ * snapshot()/ballSnapshot() are private read helpers — tests reach them via
+ * cast, same as room.test.ts reaches the private tick()/startMatch().
+ */
+function snapshots(world: World): {
+  snapshot(): PlayerSnapshot[];
+  ballSnapshot(): BallState[];
+} {
+  return world as unknown as {
+    snapshot(): PlayerSnapshot[];
+    ballSnapshot(): BallState[];
+  };
+}
 
 describe("World combat and hole scoring", () => {
   test("World initializes with default bots and holes", () => {
@@ -25,7 +40,9 @@ describe("World combat and hole scoring", () => {
     } as unknown as ServerWebSocket<SocketData>;
 
     world.addPlayer("p1", mockWs);
-    const snapBefore = world.snapshot().find((p) => p.id === "p1");
+    const snapBefore = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
     assert.ok(snapBefore);
 
     world.handleMessage("p1", {
@@ -33,9 +50,13 @@ describe("World combat and hole scoring", () => {
       color: 0xef4444,
     });
 
-    const snapAfter = world.snapshot().find((p) => p.id === "p1");
+    const snapAfter = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
     assert.equal(snapAfter?.color, 0xef4444);
-    const ballSnap = world.ballSnapshot().find((b) => b.ownerId === "p1");
+    const ballSnap = snapshots(world)
+      .ballSnapshot()
+      .find((b) => b.ownerId === "p1");
     assert.equal(ballSnap?.color, 0xef4444);
   });
 });

@@ -191,6 +191,7 @@ export type ServerMessage =
   | {
       type: typeof ServerMessageType.Welcome;
       id: string;
+      roomId: string;
       tickRateHz: number;
       world: { width: number; height: number };
       players: PlayerSnapshot[];

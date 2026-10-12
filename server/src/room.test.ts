@@ -7,7 +7,7 @@ import {
   MATCH_TEE_1_SPAWN,
   MATCH_TEE_2_SPAWN,
 } from "../../shared/constants";
-import type { BallState, HoleState } from "../../shared/types";
+import type { BallState, HoleState, PlayerSnapshot } from "../../shared/types";
 import { MatchStatus } from "../../shared/types";
 import { RoomManager } from "./roomManager";
 import type { SocketData } from "./world";
@@ -105,7 +105,9 @@ describe("RoomManager and Match Lifecycle", () => {
     assert.equal(state.status, MatchStatus.Playing);
     assert.equal(state.countdownSeconds, null);
 
-    const players = world.snapshot();
+    const players = (
+      world as unknown as { snapshot(): PlayerSnapshot[] }
+    ).snapshot();
     const p1 = players.find((p) => p.id === "p1");
     const p2 = players.find((p) => p.id === "p2");
     assert.ok(p1 && p2);
