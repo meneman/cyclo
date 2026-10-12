@@ -18,6 +18,8 @@ export const ClientMessageType = {
   Chat: "chat",
   SetColor: "setColor",
   Rematch: "rematch",
+  EquipItem: "equipItem",
+  UnequipItem: "unequipItem",
 } as const;
 export type ClientMessageType =
   (typeof ClientMessageType)[keyof typeof ClientMessageType];
@@ -47,7 +49,13 @@ export type ClientMessage =
   | { type: typeof ClientMessageType.Ping; t: number }
   | { type: typeof ClientMessageType.Chat; text: string }
   | { type: typeof ClientMessageType.SetColor; color: number }
-  | { type: typeof ClientMessageType.Rematch };
+  | { type: typeof ClientMessageType.Rematch }
+  | {
+      type: typeof ClientMessageType.EquipItem;
+      slot: string;
+      itemId: string;
+    }
+  | { type: typeof ClientMessageType.UnequipItem; slot: string };
 
 /**
  * Coerces an untrusted value into an InputState — any truthy flag counts as
@@ -147,6 +155,33 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         : null;
     case ClientMessageType.Rematch:
       return { type: ClientMessageType.Rematch };
+    case ClientMessageType.EquipItem: {
+      if (
+        typeof record.slot !== "string" ||
+        typeof record.itemId !== "string" ||
+        record.slot.length === 0 ||
+        record.slot.length > 16 ||
+        record.itemId.length === 0 ||
+        record.itemId.length > 64
+      ) {
+        return null;
+      }
+      return {
+        type: ClientMessageType.EquipItem,
+        slot: record.slot,
+        itemId: record.itemId,
+      };
+    }
+    case ClientMessageType.UnequipItem: {
+      if (
+        typeof record.slot !== "string" ||
+        record.slot.length === 0 ||
+        record.slot.length > 16
+      ) {
+        return null;
+      }
+      return { type: ClientMessageType.UnequipItem, slot: record.slot };
+    }
     default:
       return null;
   }

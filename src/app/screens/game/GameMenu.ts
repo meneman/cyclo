@@ -1,7 +1,9 @@
 import { Container, Graphics, Text } from "pixi.js";
 
 import { PLAYER_COLORS } from "../../../../shared/constants";
-import type { PlayerState } from "../../../../shared/types";
+import { ITEM_CATALOG } from "../../../../shared/items";
+import type { ItemSlot } from "../../../../shared/items";
+import type { PlayerLoadout, PlayerState } from "../../../../shared/types";
 import { userSettings } from "../../utils/userSettings";
 
 export const MENU_PANEL_WIDTH = 720;
@@ -22,7 +24,7 @@ export const COLOR_NAMES: Record<number, string> = {
   0x8b5cf6: "Violet",
 };
 
-export type MenuTab = "players" | "color" | "settings";
+export type MenuTab = "players" | "color" | "items" | "settings";
 
 /**
  * In-game menu overlay displaying:
@@ -32,6 +34,7 @@ export type MenuTab = "players" | "color" | "settings";
  */
 export class GameMenu extends Container {
   public onSelectColor?: (color: number) => void;
+  public onEquipItem?: (slot: ItemSlot, itemId: string | null) => void;
   public onClose?: () => void;
 
   private _isOpen = false;
@@ -39,6 +42,7 @@ export class GameMenu extends Container {
   private selectedColor: number = PLAYER_COLORS[0];
   private localPlayerId: string | null = null;
   private playerList: PlayerState[] = [];
+  private equippedLoadout: PlayerLoadout = {};
 
   // Dummy setting states
   private dummyGraphics = "High";
@@ -93,12 +97,14 @@ export class GameMenu extends Container {
     localId?: string | null,
     localColor?: number,
     players?: PlayerState[],
+    loadout?: PlayerLoadout,
   ): void {
     this._isOpen = true;
     this.visible = true;
     if (localId !== undefined) this.localPlayerId = localId;
     if (localColor !== undefined) this.selectedColor = localColor;
     if (players !== undefined) this.playerList = [...players];
+    if (loadout !== undefined) this.equippedLoadout = { ...loadout };
     this.renderActiveTab();
   }
 
@@ -113,11 +119,20 @@ export class GameMenu extends Container {
     localId?: string | null,
     localColor?: number,
     players?: PlayerState[],
+    loadout?: PlayerLoadout,
   ): void {
     if (this._isOpen) {
       this.close();
     } else {
-      this.open(localId, localColor, players);
+      this.open(localId, localColor, players, loadout);
+    }
+  }
+
+  /** Aktualisiert die angezeigte Ausrüstung (z. B. nach Server-Sync) */
+  public setLoadout(loadout: PlayerLoadout): void {
+    this.equippedLoadout = { ...loadout };
+    if (this._isOpen && this.currentTab === "items") {
+      this.renderItemsTab();
     }
   }
 
@@ -220,6 +235,7 @@ export class GameMenu extends Container {
     const tabs: Array<{ id: MenuTab; label: string }> = [
       { id: "players", label: "👥 Players" },
       { id: "color", label: "🎨 Color" },
+      { id: "items", label: "⛳ Items" },
       { id: "settings", label: "⚙ Settings" },
     ];
 
@@ -358,6 +374,9 @@ export class GameMenu extends Container {
         break;
       case "color":
         this.renderColorTab();
+        break;
+      case "items":
+        this.renderItemsTab();
         break;
       case "settings":
         this.renderSettingsTab();
@@ -680,7 +699,133 @@ export class GameMenu extends Container {
     this.contentArea.addChild(previewContainer);
   }
 
-  // ── Tab 3: Settings (Dummy for now) ────────────────────────────────────────
+  // ── Tab 3: Items ────────────────────────────────────────────────────────────
+
+  private renderItemsTab(): void {
+    this.contentArea.removeChildren();
+
+    const startY = 112;
+    const title = new Text({
+      text: "EQUIP ITEMS (1 PER SLOT)",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 15,
+        fontWeight: "bold",
+        fill: 0xe6edf3,
+      },
+    });
+    title.position.set(24, startY);
+    this.contentArea.addChild(title);
+
+    const subtitle = new Text({
+      text: "Server-authoritative: physics, damage, size & color apply on next swing.",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 12,
+        fill: 0x8b949e,
+      },
+    });
+    subtitle.position.set(24, startY + 22);
+    this.contentArea.addChild(subtitle);
+
+    const listContainer = new Container();
+    listContainer.position.set(24, startY + 48);
+    this.contentArea.addChild(listContainer);
+
+    const rowWidth = MENU_PANEL_WIDTH - 48;
+    const rowHeight = 44;
+    ITEM_CATALOG.forEach((item, i) => {
+      const row = new Container();
+      row.position.set(0, i * (rowHeight + 4));
+
+      const equippedId = this.equippedLoadout[item.slot];
+      const isEquipped = equippedId === item.id;
+
+      const rowBg = new Graphics();
+      rowBg.roundRect(0, 0, rowWidth, rowHeight, 6);
+      rowBg.fill({ color: isEquipped ? 0x1f2937 : 0x161b22 });
+      rowBg.stroke({ color: isEquipped ? 0x3b82f6 : 0x21262d, width: 1 });
+      row.addChild(rowBg);
+
+      const slotTag = new Text({
+        text: item.slot.toUpperCase(),
+        style: {
+          fontFamily: "monospace",
+          fontSize: 10,
+          fontWeight: "bold",
+          fill: 0x8b949e,
+        },
+      });
+      slotTag.anchor.set(0, 0.5);
+      slotTag.position.set(12, 12);
+      row.addChild(slotTag);
+
+      const nameText = new Text({
+        text: item.name,
+        style: {
+          fontFamily: "monospace",
+          fontSize: 13,
+          fontWeight: "bold",
+          fill: isEquipped ? 0x58a6ff : 0xe6edf3,
+        },
+      });
+      nameText.anchor.set(0, 0.5);
+      nameText.position.set(64, 12);
+      row.addChild(nameText);
+
+      const descText = new Text({
+        text: item.description,
+        style: { fontFamily: "monospace", fontSize: 11, fill: 0x8b949e },
+      });
+      descText.anchor.set(0, 0.5);
+      descText.position.set(12, 30);
+      row.addChild(descText);
+
+      const btn = new Container();
+      btn.eventMode = "static";
+      btn.cursor = "pointer";
+      const btnWidth = 96;
+      const btnHeight = 28;
+      btn.position.set(rowWidth - btnWidth - 10, (rowHeight - btnHeight) / 2);
+
+      const bg = new Graphics();
+      bg.roundRect(0, 0, btnWidth, btnHeight, 6);
+      bg.fill({ color: isEquipped ? 0x238636 : 0x21262d });
+      bg.stroke({ color: isEquipped ? 0x2ea043 : 0x30363d, width: 1 });
+      btn.addChild(bg);
+
+      const label = new Text({
+        text: isEquipped ? "EQUIPPED" : "EQUIP",
+        style: {
+          fontFamily: "monospace",
+          fontSize: 12,
+          fontWeight: "bold",
+          fill: 0xffffff,
+        },
+      });
+      label.anchor.set(0.5);
+      label.position.set(btnWidth / 2, btnHeight / 2);
+      btn.addChild(label);
+
+      const slot: ItemSlot = item.slot;
+      const itemId: string = item.id;
+      btn.on("pointertap", () => {
+        if (this.equippedLoadout[slot] === itemId) {
+          delete this.equippedLoadout[slot];
+          this.onEquipItem?.(slot, null);
+        } else {
+          this.equippedLoadout[slot] = itemId;
+          this.onEquipItem?.(slot, itemId);
+        }
+        this.renderItemsTab();
+      });
+      row.addChild(btn);
+
+      listContainer.addChild(row);
+    });
+  }
+
+  // ── Tab 4: Settings (Dummy for now) ────────────────────────────────────────
 
   private renderSettingsTab(): void {
     this.contentArea.removeChildren();

@@ -11,6 +11,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../../../shared/constants";
+import { resolvePlayerColor, resolveStats } from "../../../../shared/items";
 import {
   ClientMessageType,
   ServerMessageType,
@@ -197,6 +198,25 @@ export class GameScreen extends Container {
     this.gameMenu.onClose = () => {
       this.input.setEnabled(!this.chatBox.editing);
     };
+    this.gameMenu.onEquipItem = (slot, itemId) => {
+      if (itemId) {
+        this.network.send({
+          type: ClientMessageType.EquipItem,
+          slot,
+          itemId,
+        });
+      } else {
+        this.network.send({ type: ClientMessageType.UnequipItem, slot });
+      }
+      const next = { ...(this.localState?.loadout ?? {}) };
+      if (itemId) {
+        next[slot] = itemId;
+      } else {
+        delete next[slot];
+      }
+      if (this.localState) this.localState.loadout = next;
+      userSettings.setPlayerLoadout(next);
+    };
     this.addChild(this.gameMenu);
   }
 
@@ -313,10 +333,19 @@ export class GameScreen extends Container {
 
     const isMoving = directionFromInput(currentInput) !== null;
 
+    const localStats = this.localState
+      ? resolveStats(this.localState.loadout)
+      : undefined;
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
-      stepPlayer(this.localState, currentInput, dtSeconds, this.trampolines);
+      stepPlayer(
+        this.localState,
+        currentInput,
+        dtSeconds,
+        this.trampolines,
+        localStats,
+      );
       const localKnockedDown = (this.localState.knockdownTimer ?? 0) > 0;
       this.worldScene.setKnockdown(this.localState.id, localKnockedDown);
       this.entities.get(this.localState.id)?.setKnockedDown(localKnockedDown);
@@ -328,6 +357,7 @@ export class GameScreen extends Container {
         this.localState.facingX,
         this.localState.facingY,
         this.localState.z,
+        localStats?.playerRadiusMult ?? 1,
       );
       this.worldScene.setSwing(
         this.localState.id,
@@ -360,6 +390,7 @@ export class GameScreen extends Container {
         const remoteKnockedDown = (sample.knockdownTimer ?? 0) > 0;
         this.worldScene.setKnockdown(id, remoteKnockedDown);
         this.entities.get(id)?.setKnockedDown(remoteKnockedDown);
+        const remoteStats = resolveStats(sample.loadout);
         this.worldScene.move(
           id,
           sample.x,
@@ -368,6 +399,7 @@ export class GameScreen extends Container {
           sample.facingX,
           sample.facingY,
           sample.z,
+          remoteStats.playerRadiusMult,
         );
         this.worldScene.setSwing(
           id,
@@ -393,10 +425,18 @@ export class GameScreen extends Container {
     this.worldScene.syncBalls(this.ballPredictor.getBalls());
 
     const hittable = this.localState
-      ? findHittableBall(this.localState, this.ballPredictor.getSimBalls()) !==
-        null
+      ? findHittableBall(
+          this.localState,
+          this.ballPredictor.getSimBalls(),
+          0,
+          localStats,
+        ) !== null
       : false;
-    this.worldScene.updateLocalIndicators(this.localState, hittable);
+    this.worldScene.updateLocalIndicators(
+      this.localState,
+      hittable,
+      localStats,
+    );
 
     if (this.localState) {
       this.worldScene.render(this.localState.x, this.localState.y, dtSeconds);
@@ -493,6 +533,7 @@ export class GameScreen extends Container {
       this.localId,
       this.localState?.color ?? userSettings.getPlayerColor() ?? undefined,
       list,
+      this.localState?.loadout ?? userSettings.getPlayerLoadout(),
     );
     this.input.setEnabled(!this.chatBox.editing && !this.gameMenu.isOpen);
   }
@@ -554,6 +595,25 @@ export class GameScreen extends Container {
         }
         this.currentPlayers = message.players;
         this.playerCount = message.players.length;
+        // Reconnects get a fresh server-side loadout — re-equip persisted items.
+        const savedLoadout = userSettings.getPlayerLoadout();
+        const savedSlots = (
+          Object.keys(savedLoadout) as Array<"ball" | "club" | "outfit">
+        ).filter((slot) => savedLoadout[slot] !== undefined);
+        if (savedSlots.length > 0) {
+          for (const slot of savedSlots) {
+            const itemId = savedLoadout[slot];
+            if (itemId) {
+              this.network.send({
+                type: ClientMessageType.EquipItem,
+                slot,
+                itemId,
+              });
+            }
+          }
+          if (this.localState) this.localState.loadout = { ...savedLoadout };
+        }
+        this.gameMenu.setLoadout(this.localState?.loadout ?? savedLoadout);
         this.currentMatch = message.match;
         this.matchScoreboard.setMatch(message.match, this.localId);
         this.countdownBanner.setCountdown(message.match.countdownSeconds);
@@ -623,6 +683,9 @@ export class GameScreen extends Container {
               userSettings.getPlayerColor() ??
               undefined,
           );
+          if (this.localState?.loadout) {
+            this.gameMenu.setLoadout(this.localState.loadout);
+          }
         }
         this.interpolator.push(message.players);
 
@@ -646,15 +709,20 @@ export class GameScreen extends Container {
         // real name only shows up once it comes back through a state tick.
         for (const player of message.players) {
           const entity = this.entities.get(player.id);
+          const stats = resolveStats(player.loadout);
+          const effectiveColor = resolvePlayerColor(stats, player.color);
           if (entity) {
             entity.setName(player.name);
             const isBot =
               player.id.startsWith("bot-") || player.name.startsWith("Bot ");
-            entity.setColor(player.color, isBot);
-            this.worldScene?.setColor(player.id, player.color);
+            entity.setColor(effectiveColor, isBot);
+            this.worldScene?.setColor(player.id, effectiveColor);
           }
           if (player.id === this.localId && this.localState) {
             this.localState.color = player.color;
+            this.localState.loadout = player.loadout
+              ? { ...player.loadout }
+              : undefined;
           }
         }
         break;
@@ -731,7 +799,11 @@ export class GameScreen extends Container {
     entity.zIndex = 10;
     this.entities.set(snapshot.id, entity);
     this.addChild(entity);
-    this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y, snapshot.color);
+    const effectiveColor = resolvePlayerColor(
+      resolveStats(snapshot.loadout),
+      snapshot.color,
+    );
+    this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y, effectiveColor);
     this.placeLabel(snapshot.id, snapshot.x, snapshot.y);
   }
 

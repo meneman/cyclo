@@ -9,6 +9,8 @@ export interface RenderBall {
   y: number;
   z: number;
   resting: boolean;
+  /** Item-Ballgröße (Cannonball riesig, Marble Mini winzig) — 1 = Standard */
+  radiusMult: number;
 }
 
 interface TrackedBall {
@@ -135,6 +137,7 @@ export class BallPredictor {
         y: b.renderY,
         z: Math.max(0, b.renderZ),
         resting: b.sim.resting,
+        radiusMult: b.sim.radiusMult ?? 1,
       });
     }
     return result;

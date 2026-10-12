@@ -19,12 +19,20 @@ import {
 } from "../../shared/constants";
 import { ClientMessageType, ServerMessageType } from "../../shared/protocol";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol";
+import {
+  BASE_STATS,
+  isValidItemForSlot,
+  resolveBallColor,
+  resolveStats,
+} from "../../shared/items";
+import type { EffectiveStats, ItemSlot } from "../../shared/items";
 import { stepPlayer } from "../../shared/simulation";
 import { COURSE_ZONES } from "../../shared/terrain";
 import { MatchStatus } from "../../shared/types";
 import type {
   BallState,
   InputState,
+  PlayerLoadout,
   PlayerState,
   HoleState,
   MatchPlayerInfo,
@@ -73,6 +81,8 @@ export class World {
   private readonly balls = new Map<string, BallState>();
   private readonly holes = new Map<string, HoleState>();
   private readonly trampolines = new Map<string, TrampolineState>();
+  /** Aufgelöste Item-Stats pro Spieler (Bots: immer BASE_STATS, kein Loadout) */
+  private readonly statsCache = new Map<string, EffectiveStats>();
   private nextColor = 0;
   private tickHandle: ReturnType<typeof setInterval> | null = null;
   private ticks = 0;
@@ -210,6 +220,22 @@ export class World {
     });
   }
 
+  public getStats(playerId: string): EffectiveStats {
+    return this.statsCache.get(playerId) ?? BASE_STATS;
+  }
+
+  private refreshStats(id: string, loadout?: PlayerLoadout): void {
+    this.statsCache.set(id, resolveStats(loadout));
+  }
+
+  private syncOwnedBallColor(id: string): void {
+    const connection = this.connections.get(id);
+    if (!connection) return;
+    const ball = this.balls.get(`ball-${id}`);
+    if (!ball) return;
+    ball.color = resolveBallColor(this.getStats(id), connection.state.color);
+  }
+
   public addPlayer(id: string, ws: ServerWebSocket<SocketData>): void {
     const randomColor =
       PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
@@ -223,7 +249,9 @@ export class World {
       facingY: 1,
       frags: 0,
       holes: 0,
+      loadout: {},
     };
+    this.refreshStats(id, state.loadout);
 
     const ballPos = hitPoint(state);
     const ball = createBall(
@@ -285,6 +313,7 @@ export class World {
     }
     this.connections.delete(id);
     this.balls.delete(`ball-${id}`);
+    this.statsCache.delete(id);
     console.log(
       `[golfi:server] -player ${id} "${connection.state.name}" players=${this.connections.size} balls=${this.balls.size}`,
     );
@@ -349,8 +378,7 @@ export class World {
           PLAYER_COLORS.includes(message.color)
         ) {
           connection.state.color = message.color;
-          const ball = this.balls.get(`ball-${id}`);
-          if (ball) ball.color = message.color;
+          this.syncOwnedBallColor(id);
         }
         if (!connection.announcedName) {
           connection.announcedName = true;
@@ -375,11 +403,48 @@ export class World {
       case ClientMessageType.SetColor: {
         if (PLAYER_COLORS.includes(message.color)) {
           connection.state.color = message.color;
-          const ball = this.balls.get(`ball-${id}`);
-          if (ball) ball.color = message.color;
+          this.syncOwnedBallColor(id);
           console.log(
             `[golfi:server] player ${id} color changed to 0x${message.color.toString(16)}`,
           );
+        }
+        break;
+      }
+      case ClientMessageType.EquipItem: {
+        const slot = message.slot as ItemSlot;
+        if (
+          (slot === "ball" || slot === "club" || slot === "outfit") &&
+          isValidItemForSlot(message.itemId, slot)
+        ) {
+          const loadout: PlayerLoadout = {
+            ...connection.state.loadout,
+            [slot]: message.itemId,
+          };
+          connection.state.loadout = loadout;
+          this.refreshStats(id, loadout);
+          this.syncOwnedBallColor(id);
+          console.log(
+            `[golfi:server] player ${id} equipped ${message.itemId} in ${slot}`,
+          );
+        } else {
+          console.debug(
+            `[golfi:server] rejected equip from ${id} slot=${message.slot} item=${message.itemId}`,
+          );
+        }
+        break;
+      }
+      case ClientMessageType.UnequipItem: {
+        const slot = message.slot as ItemSlot;
+        if (
+          (slot === "ball" || slot === "club" || slot === "outfit") &&
+          connection.state.loadout?.[slot] !== undefined
+        ) {
+          const loadout: PlayerLoadout = { ...connection.state.loadout };
+          delete loadout[slot];
+          connection.state.loadout = loadout;
+          this.refreshStats(id, loadout);
+          this.syncOwnedBallColor(id);
+          console.log(`[golfi:server] player ${id} unequipped ${slot}`);
         }
         break;
       }
@@ -446,12 +511,17 @@ export class World {
       }
     }
 
+    const getVictimStats = (playerId: string): EffectiveStats | undefined =>
+      this.statsCache.get(playerId);
+
     for (const connection of this.connections.values()) {
+      const stats = this.getStats(connection.state.id);
       stepPlayer(
         connection.state,
         connection.input,
         dtSeconds,
         this.trampolines.values(),
+        stats,
       );
       if (connection.state.impactDue) {
         connection.state.impactDue = false;
@@ -459,6 +529,7 @@ export class World {
           connection.state,
           this.balls.values(),
           30, // Forgiveness: absorb network prediction desync
+          stats,
         );
         if (hittable) {
           strikeBall(
@@ -466,7 +537,10 @@ export class World {
             connection.state,
             connection.state.swingPower ?? 1,
             (connection.state.swingSpin ?? 0) * 120, // Spin value maps to curve strength
+            COURSE_ZONES,
+            stats,
           );
+          hittable.color = resolveBallColor(stats, connection.state.color);
         }
       }
     }
@@ -487,6 +561,9 @@ export class World {
     ];
     for (const ball of this.balls.values()) {
       if (!ball.resting) {
+        const shooterStats = ball.lastHitBy
+          ? this.statsCache.get(ball.lastHitBy)
+          : undefined;
         stepBall(
           ball,
           dtSeconds,
@@ -500,6 +577,8 @@ export class World {
             this.handleHoleScored(b, hole);
           },
           this.trampolines.values(),
+          shooterStats,
+          getVictimStats,
         );
       }
 
@@ -591,7 +670,10 @@ export class World {
   private snapshot(): PlayerState[] {
     const list: PlayerState[] = [];
     for (const c of this.connections.values()) {
-      list.push({ ...c.state });
+      list.push({
+        ...c.state,
+        loadout: c.state.loadout ? { ...c.state.loadout } : undefined,
+      });
     }
     for (const b of this.bots.values()) {
       list.push({ ...b.state });

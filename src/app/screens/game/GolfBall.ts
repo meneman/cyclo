@@ -149,14 +149,22 @@ export function setGolfBallColor(group: THREE.Group, color: number): void {
  * Updates ball and shadow 3D height appearance:
  * - Ball moves up along Z and scales up slightly (x1.0 -> x1.4)
  * - Shadow stays on the ground, slides along the sun projection ray, and shrinks/fades
+ * - `radiusMult` skaliert die Gruppe für Item-Ballgrößen (Cannonball/Marble Mini);
+ *   die Flughöhe bleibt davon unabhängig (Welt-Höhe, nicht skalierte Höhe).
  */
-export function updateGolfBallVisual(group: THREE.Group, z: number): void {
+export function updateGolfBallVisual(
+  group: THREE.Group,
+  z: number,
+  radiusMult: number = 1,
+): void {
   const ball = group.getObjectByName("Ball") as THREE.Mesh | undefined;
   const shadow = group.getObjectByName("Shadow") as THREE.Mesh | undefined;
   if (!ball || !shadow) return;
 
+  const scale = Math.min(Math.max(radiusMult, 0.5), 2.0);
+  group.scale.setScalar(scale);
   const height = Math.max(0, z);
-  ball.position.z = GOLF_BALL_RADIUS + height;
+  ball.position.z = GOLF_BALL_RADIUS + height / scale;
   const ballScale = 1.0 + 1.2 * Math.min(1, height / 36);
   ball.scale.setScalar(ballScale);
 

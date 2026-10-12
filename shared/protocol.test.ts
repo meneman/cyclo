@@ -98,6 +98,42 @@ describe("parseClientMessage", () => {
     assert.ok(rematchMsg !== null && rematchMsg.type === "rematch");
   });
 
+  test("accepts well-formed equip/unequip messages", () => {
+    const equip = parseClientMessage(
+      JSON.stringify({ type: "equipItem", slot: "club", itemId: "driver-x" }),
+    );
+    assert.ok(equip !== null && equip.type === "equipItem");
+    if (equip.type === "equipItem") {
+      assert.equal(equip.slot, "club");
+      assert.equal(equip.itemId, "driver-x");
+    }
+    const unequip = parseClientMessage(
+      JSON.stringify({ type: "unequipItem", slot: "ball" }),
+    );
+    assert.ok(unequip !== null && unequip.type === "unequipItem");
+  });
+
+  test("rejects malformed equip payloads instead of throwing into the sim", () => {
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "equipItem", slot: "club" })),
+      null,
+    );
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "equipItem", itemId: "x" })),
+      null,
+    );
+    assert.equal(
+      parseClientMessage(
+        JSON.stringify({ type: "equipItem", slot: "", itemId: "x" }),
+      ),
+      null,
+    );
+    assert.equal(
+      parseClientMessage(JSON.stringify({ type: "unequipItem" })),
+      null,
+    );
+  });
+
   test("rejects malformed payloads instead of throwing into the sim", () => {
     assert.equal(parseClientMessage("not json{"), null);
     assert.equal(parseClientMessage(JSON.stringify({})), null);

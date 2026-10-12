@@ -1,3 +1,4 @@
+import type { PlayerLoadout } from "../../../shared/types";
 import { storage } from "../../engine/utils/storage";
 import { engine } from "../getEngine";
 
@@ -7,6 +8,7 @@ const KEY_VOLUME_BGM = "volume-bgm";
 const KEY_VOLUME_SFX = "volume-sfx";
 const KEY_PLAYER_NAME = "player-name";
 const KEY_PLAYER_COLOR = "player-color";
+const KEY_PLAYER_LOADOUT = "player-loadout";
 
 /**
  * Persistent user settings of volumes.
@@ -69,6 +71,26 @@ class UserSettings {
   /** Set the player's saved color preference */
   public setPlayerColor(value: number): void {
     storage.setNumber(KEY_PLAYER_COLOR, value);
+  }
+
+  /** Get the player's saved item loadout, if they've equipped anything before */
+  public getPlayerLoadout(): PlayerLoadout {
+    const raw = storage.getObject(KEY_PLAYER_LOADOUT) as
+      Partial<Record<"ball" | "club" | "outfit", unknown>> | undefined;
+    const loadout: PlayerLoadout = {};
+    if (raw && typeof raw === "object") {
+      for (const slot of ["ball", "club", "outfit"] as const) {
+        if (typeof raw[slot] === "string" && (raw[slot] as string).length > 0) {
+          loadout[slot] = raw[slot] as string;
+        }
+      }
+    }
+    return loadout;
+  }
+
+  /** Set the player's saved item loadout */
+  public setPlayerLoadout(value: PlayerLoadout): void {
+    storage.setObject(KEY_PLAYER_LOADOUT, { ...value });
   }
 }
 

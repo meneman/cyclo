@@ -11,6 +11,7 @@ import {
   WORLD_WIDTH,
 } from "../../../../shared/constants";
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
+import type { EffectiveStats } from "../../../../shared/items";
 import { COURSE_ZONES } from "../../../../shared/terrain";
 import type { TerrainZone } from "../../../../shared/terrain";
 import type {
@@ -323,6 +324,7 @@ export class WorldScene {
     facingX?: number,
     facingY?: number,
     z?: number,
+    playerScaleMult: number = 1,
   ): void {
     const view = this.players.get(id);
     if (!view) {
@@ -342,7 +344,8 @@ export class WorldScene {
     const dx = x - view.lastX;
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, z ?? 0);
-    view.yaw.scale.setScalar(CHARACTER_SCALE);
+    const clampedPlayerScale = Math.min(Math.max(playerScaleMult, 0.7), 1.5);
+    view.yaw.scale.setScalar(CHARACTER_SCALE * clampedPlayerScale);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
 
     // Rotation: prefer authoritative facing vector, fall back to delta movement
@@ -383,7 +386,7 @@ export class WorldScene {
         setGolfBallColor(group, b.color);
       }
       group.position.set(b.x, -b.y, 0);
-      updateGolfBallVisual(group, b.z);
+      updateGolfBallVisual(group, b.z, b.radiusMult ?? 1);
     }
 
     for (const [id, group] of this.balls) {
@@ -447,6 +450,7 @@ export class WorldScene {
   public updateLocalIndicators(
     player: PlayerState | null,
     hittableBallAvailable: boolean,
+    stats?: EffectiveStats,
   ): void {
     if (!player || (player.knockdownTimer ?? 0) > 0) {
       this.rangeIndicator.visible = false;
@@ -456,6 +460,8 @@ export class WorldScene {
 
     const hp = hitPoint(player);
     this.rangeIndicator.position.set(hp.x, -hp.y, 0.03);
+    const rangeScale = (HIT_RADIUS + (stats?.hitRadiusAdd ?? 0)) / HIT_RADIUS;
+    this.rangeIndicator.scale.setScalar(rangeScale);
     this.rangeIndicator.visible = true;
     if (hittableBallAvailable) {
       this.rangeMaterial.color.setHex(0x22c55e);
@@ -466,7 +472,12 @@ export class WorldScene {
     }
 
     if ((player.charge ?? 0) > 0) {
-      const landing = predictedLanding(player, player.charge ?? 0);
+      const landing = predictedLanding(
+        player,
+        player.charge ?? 0,
+        COURSE_ZONES,
+        stats,
+      );
       this.landingMarker.position.set(landing.x, -landing.y, 0.03);
       this.landingMarker.visible = true;
     } else {

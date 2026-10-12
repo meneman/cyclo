@@ -7,6 +7,7 @@ import {
   WORLD_WIDTH,
   PLAYER_GRAVITY,
 } from "./constants";
+import type { EffectiveStats } from "./items";
 import type {
   InputState,
   PlayerState,
@@ -53,7 +54,10 @@ export function stepPlayer(
   input: InputState,
   dtSeconds: number,
   trampolines?: Iterable<TrampolineState>,
+  stats?: EffectiveStats,
 ): PlayerState {
+  const speed = PLAYER_SPEED * (stats?.playerSpeedMult ?? 1);
+  const radius = PLAYER_RADIUS * (stats?.playerRadiusMult ?? 1);
   if ((player.knockdownTimer ?? 0) > 0) {
     player.knockdownTimer = Math.max(
       0,
@@ -62,8 +66,8 @@ export function stepPlayer(
     player.charge = 0;
     player.impactTimer = 0;
     player.impactDue = false;
-    player.x = clamp(player.x, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS);
-    player.y = clamp(player.y, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS);
+    player.x = clamp(player.x, radius, WORLD_WIDTH - radius);
+    player.y = clamp(player.y, radius, WORLD_HEIGHT - radius);
     return player;
   }
 
@@ -129,15 +133,15 @@ export function stepPlayer(
     const direction = directionFromInput(input);
     if (direction) {
       // Allow moving while in the air, or maybe not? Let's allow it
-      player.x += direction.x * PLAYER_SPEED * dtSeconds;
-      player.y += direction.y * PLAYER_SPEED * dtSeconds;
+      player.x += direction.x * speed * dtSeconds;
+      player.y += direction.y * speed * dtSeconds;
       player.facingX = direction.x;
       player.facingY = direction.y;
     }
   }
 
-  player.x = clamp(player.x, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS);
-  player.y = clamp(player.y, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS);
+  player.x = clamp(player.x, radius, WORLD_WIDTH - radius);
+  player.y = clamp(player.y, radius, WORLD_HEIGHT - radius);
   return player;
 }
 

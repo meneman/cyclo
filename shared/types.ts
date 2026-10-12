@@ -25,6 +25,13 @@ export interface InputState {
   aimDy?: number;
 }
 
+/** Ein ausgerüstetes Item pro Slot (ball/club/outfit) — Details in shared/items.ts */
+export interface PlayerLoadout {
+  ball?: string;
+  club?: string;
+  outfit?: string;
+}
+
 /** Authoritative per-player simulation state, shared verbatim between server and client */
 export interface PlayerState {
   id: string;
@@ -34,6 +41,8 @@ export interface PlayerState {
   z?: number;
   vz?: number;
   color: number;
+  /** Ausgerüstete Items — der Server validiert, der Client löst Optik/Stats daraus auf */
+  loadout?: PlayerLoadout;
   /** Current swing charge from 0 (not charging) to 1 (full charge) */
   charge?: number;
   /** Current spin charge from -1 (left) to 1 (right) */
@@ -87,6 +96,18 @@ export interface BallState {
   lastHitBy?: string;
   /** Arcade spin: negative curves left, positive curves right during flight */
   spin?: number;
+  /**
+   * Beim Schlag eingebackene Flug-Mods des Schützen-Loadouts (gesetzt von
+   * strikeBall aus EffectiveStats). Damit bleibt die Flugphysik deterministisch,
+   * auch wenn das Loadout mid-flight wechselt — Snapshots tragen sie mit.
+   */
+  gravityMult?: number;
+  rollDecelMult?: number;
+  restitutionAdd?: number;
+  bounceFrictionAdd?: number;
+  radiusMult?: number;
+  collisionMult?: number;
+  knockdownMult?: number;
 }
 
 export interface HoleState {

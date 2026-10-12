@@ -21,6 +21,7 @@ import {
 } from "./constants";
 import { COURSE_ZONES, getTerrainPropertiesAt } from "./terrain";
 import type { TerrainZone } from "./terrain";
+import type { EffectiveStats } from "./items";
 import type {
   BallState,
   HoleState,
@@ -75,9 +76,12 @@ export function findHittableBall(
   player: PlayerState,
   balls: Iterable<BallState>,
   forgiveness: number = 0,
+  stats?: EffectiveStats,
 ): BallState | null {
   const point = hitPoint(player);
-  const reach = HIT_RADIUS + BALL_RADIUS + forgiveness;
+  const effectiveBallRadius = BALL_RADIUS * (stats?.ballRadiusMult ?? 1);
+  const reach =
+    HIT_RADIUS + (stats?.hitRadiusAdd ?? 0) + effectiveBallRadius + forgiveness;
   let best: BallState | null = null;
   let bestDistance = Infinity;
   for (const ball of balls) {
@@ -95,11 +99,11 @@ export function findHittableBall(
  * Carry distance (to first ground contact) for a swing power in 0..1. Shots
  * are designed in distance, not velocity — tune BALL_MIN/MAX_CARRY directly.
  */
-export function carryForPower(power: number): number {
+export function carryForPower(power: number, stats?: EffectiveStats): number {
   const p = Math.min(Math.max(power, 0), 1);
-  return (
-    BALL_MIN_CARRY + (BALL_MAX_CARRY - BALL_MIN_CARRY) * p ** BALL_POWER_EXP
-  );
+  const base =
+    BALL_MIN_CARRY + (BALL_MAX_CARRY - BALL_MIN_CARRY) * p ** BALL_POWER_EXP;
+  return base * (stats?.carryMult ?? 1);
 }
 
 /**
@@ -110,9 +114,11 @@ export function carryForPower(power: number): number {
 export function launchVelocity(
   direction: Vector2,
   carry: number,
+  stats?: EffectiveStats,
 ): { vx: number; vy: number; vz: number } {
+  const gravity = BALL_GRAVITY * (stats?.gravityMult ?? 1);
   const speed = Math.sqrt(
-    (Math.max(carry, 0) * BALL_GRAVITY) / Math.sin(2 * BALL_LAUNCH_ANGLE),
+    (Math.max(carry, 0) * gravity) / Math.sin(2 * BALL_LAUNCH_ANGLE),
   );
   const horizontal = speed * Math.cos(BALL_LAUNCH_ANGLE);
   return {
@@ -127,11 +133,12 @@ export function predictedLanding(
   player: PlayerState,
   power: number,
   zones: TerrainZone[] = COURSE_ZONES,
+  stats?: EffectiveStats,
 ): Vector2 {
   const f = facingOf(player);
   const origin = hitPoint(player);
   const terrain = getTerrainPropertiesAt(origin.x, origin.y, zones);
-  const carry = carryForPower(power) * terrain.carryMultiplier;
+  const carry = carryForPower(power, stats) * terrain.carryMultiplier;
   return { x: origin.x + f.x * carry, y: origin.y + f.y * carry };
 }
 
@@ -142,10 +149,11 @@ export function strikeBall(
   power: number,
   spin: number = 0,
   zones: TerrainZone[] = COURSE_ZONES,
+  stats?: EffectiveStats,
 ): BallState {
   const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
-  const carry = carryForPower(power) * terrain.carryMultiplier;
-  const velocity = launchVelocity(facingOf(hitter), carry);
+  const carry = carryForPower(power, stats) * terrain.carryMultiplier;
+  const velocity = launchVelocity(facingOf(hitter), carry, stats);
   ball.vx = velocity.vx;
   ball.vy = velocity.vy;
   ball.vz = velocity.vz;
@@ -153,7 +161,15 @@ export function strikeBall(
   ball.resting = false;
   ball.hitSeq += 1;
   ball.lastHitBy = hitter.id;
-  ball.spin = spin;
+  ball.spin = spin * (stats?.spinMult ?? 1);
+  // Flug-Mods einbacken: bleiben am Ball, auch bei Loadout-Wechsel mid-flight
+  ball.gravityMult = stats?.gravityMult ?? 1;
+  ball.rollDecelMult = stats?.rollDecelMult ?? 1;
+  ball.restitutionAdd = stats?.restitutionAdd ?? 0;
+  ball.bounceFrictionAdd = stats?.bounceFrictionAdd ?? 0;
+  ball.radiusMult = stats?.ballRadiusMult ?? 1;
+  ball.collisionMult = stats?.collisionRadiusMult ?? 1;
+  ball.knockdownMult = stats?.knockdownMult ?? 1;
   return ball;
 }
 
@@ -199,19 +215,30 @@ export function createBall(
 export function resolveBallPlayerCollision(
   ball: BallState,
   player: PlayerState,
+  attackerStats?: EffectiveStats,
+  victimStats?: EffectiveStats,
 ): boolean {
   if (ball.resting) return false;
   if ((player.knockdownTimer ?? 0) > 0) return false;
   if (ball.lastHitBy && ball.lastHitBy === player.id) return false;
   if (ball.z > PLAYER_HEIGHT) return false;
 
-  const reach = PLAYER_RADIUS + BALL_RADIUS;
+  const effectiveBallRadius =
+    BALL_RADIUS * (ball.radiusMult ?? attackerStats?.ballRadiusMult ?? 1);
+  const effectivePlayerRadius =
+    PLAYER_RADIUS * (victimStats?.playerRadiusMult ?? 1);
+  const collisionMult =
+    ball.collisionMult ?? attackerStats?.collisionRadiusMult ?? 1;
+  const reach = (effectivePlayerRadius + effectiveBallRadius) * collisionMult;
   const dx = ball.x - player.x;
   const dy = ball.y - player.y;
   const dist = Math.hypot(dx, dy);
   if (dist > reach) return false;
 
-  player.knockdownTimer = KNOCKDOWN_DURATION_SECONDS;
+  const knockdownMult =
+    (ball.knockdownMult ?? attackerStats?.knockdownMult ?? 1) *
+    (victimStats?.knockdownTakenMult ?? 1);
+  player.knockdownTimer = KNOCKDOWN_DURATION_SECONDS * knockdownMult;
   player.charge = 0;
   player.impactTimer = 0;
   player.impactDue = false;
@@ -222,10 +249,14 @@ export function resolveBallPlayerCollision(
   ball.x = player.x + nx * reach;
   ball.y = player.y + ny * reach;
 
+  const restitution = Math.min(
+    0.95,
+    Math.max(0, BALL_PLAYER_RESTITUTION + (attackerStats?.restitutionAdd ?? 0)),
+  );
   const dot = ball.vx * nx + ball.vy * ny;
   if (dot < 0) {
-    ball.vx -= (1 + BALL_PLAYER_RESTITUTION) * dot * nx;
-    ball.vy -= (1 + BALL_PLAYER_RESTITUTION) * dot * ny;
+    ball.vx -= (1 + restitution) * dot * nx;
+    ball.vy -= (1 + restitution) * dot * ny;
     ball.vz *= 0.5;
   }
 
@@ -237,6 +268,11 @@ export function resolveBallPlayerCollision(
  * steps so the result doesn't depend on the caller's frame/tick rate
  * (beyond the final partial step). Mutates and returns `ball`.
  */
+/**
+ * Optionale Item-Auflösung für stepBall: `stats` sind die Fallback-Werte des
+ * Schützen (Bälle ohne eingebackene Mods), `getVictimStats` liefert pro
+ * Opfer die Damage-Resistenz/Größe (Tank Suit etc.).
+ */
 export function stepBall(
   ball: BallState,
   dtSeconds: number,
@@ -246,6 +282,8 @@ export function stepBall(
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
   trampolines?: Iterable<TrampolineState>,
+  stats?: EffectiveStats,
+  getVictimStats?: (playerId: string) => EffectiveStats | undefined,
 ): BallState {
   let remaining = dtSeconds;
   while (remaining > 1e-9 && !ball.resting) {
@@ -259,6 +297,8 @@ export function stepBall(
       holes,
       onHoleScored,
       trampolines,
+      stats,
+      getVictimStats,
     );
     remaining -= h;
   }
@@ -282,7 +322,15 @@ function substep(
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
   trampolines?: Iterable<TrampolineState>,
+  stats?: EffectiveStats,
+  getVictimStats?: (playerId: string) => EffectiveStats | undefined,
 ): void {
+  const gravityMult = ball.gravityMult ?? stats?.gravityMult ?? 1;
+  const rollDecelMult = ball.rollDecelMult ?? stats?.rollDecelMult ?? 1;
+  const restitutionAdd = ball.restitutionAdd ?? stats?.restitutionAdd ?? 0;
+  const bounceFrictionAdd =
+    ball.bounceFrictionAdd ?? stats?.bounceFrictionAdd ?? 0;
+
   // 1. Accumulate Forces (as acceleration)
   let ax = 0;
   let ay = 0;
@@ -291,7 +339,7 @@ function substep(
   const isAirborne = ball.z > 0 || ball.vz > 0;
 
   if (isAirborne) {
-    az -= BALL_GRAVITY;
+    az -= BALL_GRAVITY * gravityMult;
 
     // Arcade Magnus effect (curve)
     if (ball.spin) {
@@ -312,8 +360,8 @@ function substep(
     if (speed > 0) {
       const dirX = ball.vx / speed;
       const dirY = ball.vy / speed;
-      ax -= dirX * terrain.rollDecel;
-      ay -= dirY * terrain.rollDecel;
+      ax -= dirX * terrain.rollDecel * rollDecelMult;
+      ay -= dirY * terrain.rollDecel * rollDecelMult;
     }
   }
 
@@ -325,8 +373,9 @@ function substep(
   // 3. Stop Condition Check (Rolling)
   if (!isAirborne) {
     const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
+    const effectiveRollDecel = terrain.rollDecel * rollDecelMult;
     const newSpeed = Math.hypot(ball.vx, ball.vy);
-    const accelMagnitude = terrain.rollDecel * h;
+    const accelMagnitude = effectiveRollDecel * h;
     const oldSpeed = Math.hypot(ball.vx - ax * h, ball.vy - ay * h);
     if (newSpeed <= BALL_REST_SPEED || accelMagnitude >= oldSpeed) {
       ball.vx = 0;
@@ -364,9 +413,17 @@ function substep(
       ball.z = 0;
       if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
         const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);
-        ball.vz = -ball.vz * terrain.restitution;
-        ball.vx *= terrain.bounceFriction;
-        ball.vy *= terrain.bounceFriction;
+        const restitution = Math.min(
+          0.95,
+          Math.max(0, terrain.restitution + restitutionAdd),
+        );
+        const bounceFriction = Math.min(
+          1,
+          Math.max(0, terrain.bounceFriction + bounceFrictionAdd),
+        );
+        ball.vz = -ball.vz * restitution;
+        ball.vx *= bounceFriction;
+        ball.vy *= bounceFriction;
       } else {
         ball.vz = 0;
       }
@@ -390,20 +447,23 @@ function substep(
 
   if (players) {
     for (const player of players) {
-      if (resolveBallPlayerCollision(ball, player)) {
+      const victimStats = getVictimStats?.(player.id);
+      if (resolveBallPlayerCollision(ball, player, stats, victimStats)) {
         onPlayerHit?.(ball, player);
       }
     }
   }
 
-  bounceOffWalls(ball);
+  bounceOffWalls(ball, stats);
 }
 
-function bounceOffWalls(ball: BallState): void {
-  const minX = BALL_RADIUS;
-  const maxX = WORLD_WIDTH - BALL_RADIUS;
-  const minY = BALL_RADIUS;
-  const maxY = WORLD_HEIGHT - BALL_RADIUS;
+function bounceOffWalls(ball: BallState, stats?: EffectiveStats): void {
+  const effectiveRadius =
+    BALL_RADIUS * (ball.radiusMult ?? stats?.ballRadiusMult ?? 1);
+  const minX = effectiveRadius;
+  const maxX = WORLD_WIDTH - effectiveRadius;
+  const minY = effectiveRadius;
+  const maxY = WORLD_HEIGHT - effectiveRadius;
   if (ball.x < minX) {
     ball.x = minX;
     ball.vx = Math.abs(ball.vx) * BALL_WALL_RESTITUTION;
