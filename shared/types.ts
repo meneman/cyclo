@@ -48,6 +48,11 @@ export interface PlayerState {
    * Loadout ist immer eine Teilmenge (1 pro Slot) — der Server setzt das durch.
    */
   inventory?: string[];
+  /**
+   * Stack-Zähler pro Item-ID (1..MAX_STACKS_PER_ITEM).
+   * Fehlt ein Eintrag, gilt standardmäßig 1 Stack.
+   */
+  itemStacks?: Record<string, number>;
   /** Current swing charge from 0 (not charging) to 1 (full charge) */
   charge?: number;
   /** Current spin charge from -1 (left) to 1 (right) */
@@ -120,14 +125,6 @@ export interface HoleState {
   x: number;
   y: number;
   radius: number;
-}
-
-export interface TrampolineState {
-  id: string;
-  x: number;
-  y: number;
-  radius: number;
-  bounceVelocity: number;
 }
 
 /** Map pickup granting an item when a player walks into its radius */

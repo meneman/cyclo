@@ -77,8 +77,17 @@ describe("GameMenu", () => {
   test("setInventory stores owned items without throwing", () => {
     const menu = new GameMenu();
     menu.open("local-1", PLAYER_COLORS[0], [], {}, ["titan-ball", "tailwind"]);
-    menu.setInventory(["titan-ball", "tailwind", "minnow"]);
+    menu.setInventory(["titan-ball", "tailwind", "cannonball"]);
     menu.setLoadout({ club: "tailwind" });
+    assert.equal(menu.isOpen, true);
+  });
+
+  test("setInventory with stacks renders without throwing", () => {
+    const menu = new GameMenu();
+    menu.open("local-1", PLAYER_COLORS[0], [], {}, ["tailwind"], {
+      tailwind: 2,
+    });
+    menu.setInventory(["tailwind"], { tailwind: 3 });
     assert.equal(menu.isOpen, true);
   });
 

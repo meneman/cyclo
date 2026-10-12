@@ -8,12 +8,7 @@ import {
   PLAYER_GRAVITY,
 } from "./constants";
 import type { EffectiveStats } from "./items";
-import type {
-  InputState,
-  PlayerState,
-  Vector2,
-  TrampolineState,
-} from "./types";
+import type { InputState, PlayerState, Vector2 } from "./types";
 
 /** Diagonal component so diagonals run at the same speed as cardinals */
 const DIAGONAL_COMPONENT = Math.SQRT1_2;
@@ -53,7 +48,6 @@ export function stepPlayer(
   player: PlayerState,
   input: InputState,
   dtSeconds: number,
-  trampolines?: Iterable<TrampolineState>,
   stats?: EffectiveStats,
 ): PlayerState {
   const speed = PLAYER_SPEED * (stats?.playerSpeedMult ?? 1);
@@ -81,18 +75,6 @@ export function stepPlayer(
     if (player.z <= 0) {
       player.z = 0;
       player.vz = 0;
-    }
-  }
-
-  // Trampoline collision
-  if (player.z === 0 && trampolines) {
-    for (const tramp of trampolines) {
-      const dist = Math.hypot(player.x - tramp.x, player.y - tramp.y);
-      if (dist <= tramp.radius) {
-        player.vz = tramp.bounceVelocity * 0.8; // slightly less than ball bounce
-        player.z = 0.01; // detach from ground
-        break;
-      }
     }
   }
 

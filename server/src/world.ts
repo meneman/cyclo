@@ -24,10 +24,12 @@ import type { ClientMessage, ServerMessage } from "../../shared/protocol";
 import {
   BASE_STATS,
   ITEM_PICKUP_SPAWNS,
+  MAX_STACKS_PER_ITEM,
   addToInventoryFifo,
   getItem,
   isValidItemForSlot,
   normalizeInventory,
+  normalizeStacks,
   removeFromInventory,
   resolveBallColor,
   resolveStats,
@@ -45,7 +47,6 @@ import type {
   ItemPickupState,
   MatchPlayerInfo,
   MatchState,
-  TrampolineState,
 } from "../../shared/types";
 
 export interface SocketData {
@@ -73,6 +74,8 @@ interface Connection {
   lastSeq: number;
   /** Set once this connection has sent a real name via Join — gates the join/leave chat announcements */
   announcedName: boolean;
+  /** Set of pickup IDs the player is currently inside, preventing continuous tick farming */
+  insidePickups: Set<string>;
 }
 
 /**
@@ -85,7 +88,6 @@ export class World {
   private readonly connections = new Map<string, Connection>();
   private readonly balls = new Map<string, BallState>();
   private readonly holes = new Map<string, HoleState>();
-  private readonly trampolines = new Map<string, TrampolineState>();
   private readonly pickups = new Map<string, ItemPickupState>();
   /** Aufgelöste Item-Stats pro Spieler */
   private readonly statsCache = new Map<string, EffectiveStats>();
@@ -106,20 +108,6 @@ export class World {
         x: Math.random() * WORLD_WIDTH,
         y: Math.random() * WORLD_HEIGHT,
         radius: 30 + Math.random() * 20,
-      });
-    }
-
-    for (let i = 0; i < 2; i++) {
-      const id = `trampoline-${i}`;
-      // Put the first trampoline right next to the spawn point so it's easy to test
-      const x = i === 0 ? WORLD_WIDTH / 2 + 100 : Math.random() * WORLD_WIDTH;
-      const y = i === 0 ? WORLD_HEIGHT / 2 : Math.random() * WORLD_HEIGHT;
-      this.trampolines.set(id, {
-        id,
-        x,
-        y,
-        radius: 40,
-        bounceVelocity: 800,
       });
     }
 
@@ -180,8 +168,12 @@ export class World {
     return this.statsCache.get(playerId) ?? BASE_STATS;
   }
 
-  private refreshStats(id: string, loadout?: PlayerLoadout): void {
-    this.statsCache.set(id, resolveStats(loadout));
+  private refreshStats(
+    id: string,
+    loadout?: PlayerLoadout,
+    itemStacks?: Record<string, number>,
+  ): void {
+    this.statsCache.set(id, resolveStats(loadout, itemStacks));
   }
 
   private syncOwnedBallColor(id: string): void {
@@ -207,8 +199,9 @@ export class World {
       holes: 0,
       loadout: {},
       inventory: [],
+      itemStacks: {},
     };
-    this.refreshStats(id, state.loadout);
+    this.refreshStats(id, state.loadout, state.itemStacks);
 
     const ballPos = hitPoint(state);
     const ball = createBall(
@@ -228,6 +221,7 @@ export class World {
       input: { ...IDLE_INPUT },
       lastSeq: 0,
       announcedName: false,
+      insidePickups: new Set<string>(),
     });
     console.log(
       `[golfi:server] +player ${id} at (${state.x}, ${state.y}) players=${this.connections.size} balls=${this.balls.size}`,
@@ -242,7 +236,6 @@ export class World {
       players: this.snapshot(),
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
-      trampolines: this.trampolineSnapshot(),
       pickups: this.pickupSnapshot(),
       match: this.getMatchState(),
     });
@@ -376,31 +369,42 @@ export class World {
         ) {
           // Menu equips also collect into the inventory — full means the
           // oldest item drops out (FIFO), never a silent reject.
+          // Menu grant mints the first copy (stacks = 1) only, never stacks beyond 1.
           const owned = normalizeInventory(connection.state.inventory);
-          const { inventory, evicted } = addToInventoryFifo(
-            owned,
-            message.itemId,
-          );
+          const stacksMap = normalizeStacks(connection.state.itemStacks);
+          const isAlreadyOwned = owned.includes(message.itemId);
+
+          let evictedItem: string | undefined;
+          if (!isAlreadyOwned) {
+            const result = addToInventoryFifo(owned, message.itemId);
+            connection.state.inventory = result.inventory;
+            evictedItem = result.evicted;
+            stacksMap[message.itemId] = 1;
+            if (evictedItem) {
+              delete stacksMap[evictedItem];
+            }
+          }
+
           const loadout: PlayerLoadout = {
             ...connection.state.loadout,
             [slot]: message.itemId,
           };
-          if (evicted) {
-            const evictedDef = getItem(evicted);
-            if (evictedDef && loadout[evictedDef.slot] === evicted) {
+          if (evictedItem) {
+            const evictedDef = getItem(evictedItem);
+            if (evictedDef && loadout[evictedDef.slot] === evictedItem) {
               delete loadout[evictedDef.slot];
             }
           }
-          connection.state.inventory = inventory;
           connection.state.loadout = loadout;
-          this.refreshStats(id, loadout);
+          connection.state.itemStacks = stacksMap;
+          this.refreshStats(id, loadout, stacksMap);
           this.syncOwnedBallColor(id);
           console.log(
             `[golfi:server] player ${id} equipped ${message.itemId} in ${slot}`,
           );
-          if (evicted) {
+          if (evictedItem) {
             this.announce(
-              `${connection.state.name} dropped ${getItem(evicted)?.name ?? evicted} — inventory full!`,
+              `${connection.state.name} dropped ${getItem(evictedItem)?.name ?? evictedItem} — inventory full!`,
             );
           }
         } else {
@@ -419,7 +423,7 @@ export class World {
           const loadout: PlayerLoadout = { ...connection.state.loadout };
           delete loadout[slot];
           connection.state.loadout = loadout;
-          this.refreshStats(id, loadout);
+          this.refreshStats(id, loadout, connection.state.itemStacks);
           this.syncOwnedBallColor(id);
           console.log(`[golfi:server] player ${id} unequipped ${slot}`);
         }
@@ -435,15 +439,38 @@ export class World {
         }
         const owned = normalizeInventory(connection.state.inventory);
         if (!owned.includes(item.id)) break;
-        connection.state.inventory = removeFromInventory(owned, item.id);
-        if (connection.state.loadout?.[item.slot] === item.id) {
-          const loadout: PlayerLoadout = { ...connection.state.loadout };
-          delete loadout[item.slot];
-          connection.state.loadout = loadout;
-          this.refreshStats(id, loadout);
+        const stacksMap = normalizeStacks(connection.state.itemStacks);
+        const currentStacks = stacksMap[item.id] ?? 1;
+
+        if (currentStacks > 1) {
+          const newStacks = currentStacks - 1;
+          stacksMap[item.id] = newStacks;
+          connection.state.itemStacks = stacksMap;
+          this.refreshStats(
+            id,
+            connection.state.loadout,
+            connection.state.itemStacks,
+          );
+          console.log(
+            `[golfi:server] player ${id} dropped 1 stack of ${item.id} (${newStacks} left)`,
+          );
+        } else {
+          delete stacksMap[item.id];
+          connection.state.itemStacks = stacksMap;
+          connection.state.inventory = removeFromInventory(owned, item.id);
+          if (connection.state.loadout?.[item.slot] === item.id) {
+            const loadout: PlayerLoadout = { ...connection.state.loadout };
+            delete loadout[item.slot];
+            connection.state.loadout = loadout;
+          }
+          this.refreshStats(
+            id,
+            connection.state.loadout,
+            connection.state.itemStacks,
+          );
           this.syncOwnedBallColor(id);
+          console.log(`[golfi:server] player ${id} dropped ${item.id}`);
         }
-        console.log(`[golfi:server] player ${id} dropped ${item.id}`);
         break;
       }
       case ClientMessageType.Chat: {
@@ -498,13 +525,7 @@ export class World {
 
     for (const connection of this.connections.values()) {
       const stats = this.getStats(connection.state.id);
-      stepPlayer(
-        connection.state,
-        connection.input,
-        dtSeconds,
-        this.trampolines.values(),
-        stats,
-      );
+      stepPlayer(connection.state, connection.input, dtSeconds, stats);
       if (connection.state.impactDue) {
         connection.state.impactDue = false;
         const hittable = findHittableBall(
@@ -527,15 +548,24 @@ export class World {
       }
     }
 
-    // Walking into a pickup circle equips its item into the matching slot
+    // Walking into a pickup circle equips or stacks the item.
+    // Stepping off and walking back on allows re-acquiring / stacking immediately without despawning.
     for (const connection of this.connections.values()) {
       for (const pickup of this.pickups.values()) {
         const dist = Math.hypot(
           connection.state.x - pickup.x,
           connection.state.y - pickup.y,
         );
-        if (dist <= pickup.radius) {
-          this.grantPickup(connection.state.id, pickup);
+        const isInside = dist <= pickup.radius;
+        const wasInside = connection.insidePickups.has(pickup.id);
+
+        if (isInside) {
+          if (!wasInside) {
+            connection.insidePickups.add(pickup.id);
+            this.grantPickup(connection.state.id, pickup);
+          }
+        } else if (wasInside) {
+          connection.insidePickups.delete(pickup.id);
         }
       }
     }
@@ -558,7 +588,6 @@ export class World {
           (b, hole) => {
             this.handleHoleScored(b, hole);
           },
-          this.trampolines.values(),
           shooterStats,
           getVictimStats,
         );
@@ -591,7 +620,6 @@ export class World {
       players: this.snapshot(),
       balls: this.ballSnapshot(),
       holes: this.holeSnapshot(),
-      trampolines: this.trampolineSnapshot(),
       pickups: this.pickupSnapshot(),
     };
     server.publish(this.topic, JSON.stringify(message));
@@ -646,6 +674,9 @@ export class World {
         b2.lastHitBy = undefined;
       }
     }
+    for (const c of this.connections.values()) {
+      c.insidePickups.clear();
+    }
     this.announce("MATCH START! First to 10 points wins! GO!");
     this.broadcastMatchState();
   }
@@ -657,6 +688,7 @@ export class World {
         ...c.state,
         loadout: c.state.loadout ? { ...c.state.loadout } : undefined,
         inventory: c.state.inventory ? [...c.state.inventory] : undefined,
+        itemStacks: c.state.itemStacks ? { ...c.state.itemStacks } : undefined,
       });
     }
     return list;
@@ -670,45 +702,70 @@ export class World {
     return Array.from(this.holes.values(), (h) => ({ ...h }));
   }
 
-  private trampolineSnapshot(): TrampolineState[] {
-    return Array.from(this.trampolines.values(), (t) => ({ ...t }));
-  }
-
   private pickupSnapshot(): ItemPickupState[] {
-    return Array.from(this.pickups.values(), (p) => ({ ...p }));
+    return Array.from(this.pickups.values());
   }
 
   /**
-   * Equips the pickup's item into its slot — a no-op if already equipped.
-   * The pickup also collects into the inventory (max 5): when full, the
-   * oldest owned item drops out (FIFO) so walking over loot never rejects.
+   * Equips or increments stacks for the pickup's item.
+   * If inventory is full when collecting a new item, the oldest drops out (FIFO).
    */
   private grantPickup(playerId: string, pickup: ItemPickupState): void {
     const connection = this.connections.get(playerId);
     const item = getItem(pickup.itemId);
     if (!connection || !item) return;
-    if (connection.state.loadout?.[item.slot] === item.id) return;
+
     const owned = normalizeInventory(connection.state.inventory);
-    const { inventory, evicted } = addToInventoryFifo(owned, item.id);
-    const loadout: PlayerLoadout = {
-      ...connection.state.loadout,
-      [item.slot]: item.id,
-    };
-    if (evicted) {
-      const evictedDef = getItem(evicted);
-      if (evictedDef && loadout[evictedDef.slot] === evicted) {
-        delete loadout[evictedDef.slot];
+    const stacksMap = normalizeStacks(connection.state.itemStacks);
+    const isOwned = owned.includes(item.id);
+    const currentStacks = stacksMap[item.id] ?? (isOwned ? 1 : 0);
+
+    let announceText = "";
+
+    if (!isOwned) {
+      const { inventory, evicted } = addToInventoryFifo(owned, item.id);
+      stacksMap[item.id] = 1;
+      const loadout: PlayerLoadout = {
+        ...connection.state.loadout,
+        [item.slot]: item.id,
+      };
+      if (evicted) {
+        delete stacksMap[evicted];
+        const evictedDef = getItem(evicted);
+        if (evictedDef && loadout[evictedDef.slot] === evicted) {
+          delete loadout[evictedDef.slot];
+        }
+        announceText = `${connection.state.name} picked up ${item.name}! (${getItem(evicted)?.name ?? evicted} dropped — inventory full)`;
+      } else {
+        announceText = `${connection.state.name} picked up ${item.name}!`;
+      }
+      connection.state.inventory = inventory;
+      connection.state.loadout = loadout;
+    } else {
+      if (currentStacks < MAX_STACKS_PER_ITEM) {
+        const newStacks = currentStacks + 1;
+        stacksMap[item.id] = newStacks;
+        const loadout: PlayerLoadout = {
+          ...connection.state.loadout,
+          [item.slot]: item.id,
+        };
+        connection.state.loadout = loadout;
+        announceText = `${connection.state.name} stacked ${item.name} (x${newStacks})!`;
+      } else {
+        announceText = `${connection.state.name} is already at max stacks for ${item.name} (x${MAX_STACKS_PER_ITEM})!`;
       }
     }
-    connection.state.inventory = inventory;
-    connection.state.loadout = loadout;
-    this.refreshStats(playerId, loadout);
-    this.syncOwnedBallColor(playerId);
-    this.announce(
-      evicted
-        ? `${connection.state.name} picked up ${item.name}! (${getItem(evicted)?.name ?? evicted} dropped — inventory full)`
-        : `${connection.state.name} picked up ${item.name}!`,
+
+    connection.state.itemStacks = stacksMap;
+    this.refreshStats(
+      playerId,
+      connection.state.loadout,
+      connection.state.itemStacks,
     );
+    this.syncOwnedBallColor(playerId);
+    if (announceText) {
+      this.announce(announceText);
+    }
   }
 
   private sendTo(

@@ -4,7 +4,10 @@ import { PLAYER_COLORS } from "../../../../shared/constants";
 import {
   ITEM_CATALOG,
   MAX_INVENTORY_ITEMS,
+  MAX_STACKS_PER_ITEM,
   addToInventoryFifo,
+  formatItemStatsText,
+  isItemAtLimit,
   removeFromInventory,
 } from "../../../../shared/items";
 import type { ItemSlot } from "../../../../shared/items";
@@ -50,6 +53,7 @@ export class GameMenu extends Container {
   private playerList: PlayerState[] = [];
   private equippedLoadout: PlayerLoadout = {};
   private ownedInventory: string[] = [];
+  private itemStacks: Record<string, number> = {};
 
   // Dummy setting states
   private dummyGraphics = "High";
@@ -106,6 +110,7 @@ export class GameMenu extends Container {
     players?: PlayerState[],
     loadout?: PlayerLoadout,
     inventory?: readonly string[],
+    itemStacks?: Record<string, number>,
   ): void {
     this._isOpen = true;
     this.visible = true;
@@ -114,6 +119,7 @@ export class GameMenu extends Container {
     if (players !== undefined) this.playerList = [...players];
     if (loadout !== undefined) this.equippedLoadout = { ...loadout };
     if (inventory !== undefined) this.ownedInventory = [...inventory];
+    if (itemStacks !== undefined) this.itemStacks = { ...itemStacks };
     this.renderActiveTab();
   }
 
@@ -130,11 +136,12 @@ export class GameMenu extends Container {
     players?: PlayerState[],
     loadout?: PlayerLoadout,
     inventory?: readonly string[],
+    itemStacks?: Record<string, number>,
   ): void {
     if (this._isOpen) {
       this.close();
     } else {
-      this.open(localId, localColor, players, loadout, inventory);
+      this.open(localId, localColor, players, loadout, inventory, itemStacks);
     }
   }
 
@@ -147,8 +154,14 @@ export class GameMenu extends Container {
   }
 
   /** Aktualisiert das angezeigte Inventar (z. B. nach Server-Sync) */
-  public setInventory(inventory: readonly string[]): void {
+  public setInventory(
+    inventory: readonly string[],
+    itemStacks?: Record<string, number>,
+  ): void {
     this.ownedInventory = [...inventory];
+    if (itemStacks !== undefined) {
+      this.itemStacks = { ...itemStacks };
+    }
     if (this._isOpen && this.currentTab === "items") {
       this.renderItemsTab();
     }
@@ -752,11 +765,24 @@ export class GameMenu extends Container {
       const equippedId = this.equippedLoadout[item.slot];
       const isEquipped = equippedId === item.id;
 
+      const slot: ItemSlot = item.slot;
+      const itemId: string = item.id;
+      const isOwned = this.ownedInventory.includes(itemId);
+      const stacks = this.itemStacks[itemId] ?? 1;
+      const atMax =
+        isOwned &&
+        (stacks >= MAX_STACKS_PER_ITEM || isItemAtLimit(item, stacks));
+
       const rowBg = new Graphics();
       rowBg.roundRect(0, 0, rowWidth, rowHeight, 6);
       rowBg.fill({ color: isEquipped ? 0x1f2937 : 0x161b22 });
       rowBg.stroke({ color: isEquipped ? 0x3b82f6 : 0x21262d, width: 1 });
       row.addChild(rowBg);
+
+      const accent = new Graphics();
+      accent.roundRect(0, 0, 4, rowHeight, 2);
+      accent.fill({ color: item.color });
+      row.addChild(accent);
 
       const slotTag = new Text({
         text: item.slot.toUpperCase(),
@@ -764,15 +790,16 @@ export class GameMenu extends Container {
           fontFamily: "monospace",
           fontSize: 10,
           fontWeight: "bold",
-          fill: 0x8b949e,
+          fill: item.color,
         },
       });
       slotTag.anchor.set(0, 0.5);
       slotTag.position.set(12, 12);
       row.addChild(slotTag);
 
+      const stackLabel = isOwned && stacks > 1 ? ` x${stacks}` : "";
       const nameText = new Text({
-        text: item.name,
+        text: `${item.name}${stackLabel}`,
         style: {
           fontFamily: "monospace",
           fontSize: 13,
@@ -784,8 +811,33 @@ export class GameMenu extends Container {
       nameText.position.set(64, 12);
       row.addChild(nameText);
 
+      if (atMax) {
+        const maxBadge = new Container();
+        const maxBg = new Graphics();
+        maxBg.roundRect(0, 0, 36, 16, 4);
+        maxBg.fill({ color: 0xd97706 });
+        maxBadge.addChild(maxBg);
+
+        const maxText = new Text({
+          text: "MAX",
+          style: {
+            fontFamily: "monospace",
+            fontSize: 10,
+            fontWeight: "bold",
+            fill: 0xffffff,
+          },
+        });
+        maxText.anchor.set(0.5);
+        maxText.position.set(18, 8);
+        maxBadge.addChild(maxText);
+
+        maxBadge.position.set(64 + nameText.width + 8, 4);
+        row.addChild(maxBadge);
+      }
+
+      const statText = formatItemStatsText(item, isOwned ? stacks : 1);
       const descText = new Text({
-        text: item.description,
+        text: statText ? `${item.description} [${statText}]` : item.description,
         style: { fontFamily: "monospace", fontSize: 11, fill: 0x8b949e },
       });
       descText.anchor.set(0, 0.5);
@@ -818,21 +870,23 @@ export class GameMenu extends Container {
       label.position.set(btnWidth / 2, btnHeight / 2);
       btn.addChild(label);
 
-      const slot: ItemSlot = item.slot;
-      const itemId: string = item.id;
-      const isOwned = this.ownedInventory.includes(itemId);
       btn.on("pointertap", () => {
         if (this.equippedLoadout[slot] === itemId) {
           delete this.equippedLoadout[slot];
           this.onEquipItem?.(slot, null);
         } else {
           // Mirror the server FIFO so the list never flickers on full.
-          const result = addToInventoryFifo(this.ownedInventory, itemId);
-          this.ownedInventory = result.inventory;
-          if (result.evicted !== undefined) {
-            for (const ownedSlot of ["ball", "club", "outfit"] as const) {
-              if (this.equippedLoadout[ownedSlot] === result.evicted) {
-                delete this.equippedLoadout[ownedSlot];
+          // Optimistic equip updates loadout only, never stacks.
+          if (!this.ownedInventory.includes(itemId)) {
+            const result = addToInventoryFifo(this.ownedInventory, itemId);
+            this.ownedInventory = result.inventory;
+            this.itemStacks[itemId] = 1;
+            if (result.evicted !== undefined) {
+              delete this.itemStacks[result.evicted];
+              for (const ownedSlot of ["ball", "club", "outfit"] as const) {
+                if (this.equippedLoadout[ownedSlot] === result.evicted) {
+                  delete this.equippedLoadout[ownedSlot];
+                }
               }
             }
           }
@@ -874,12 +928,18 @@ export class GameMenu extends Container {
         dropBtn.addChild(dropLabel);
 
         dropBtn.on("pointertap", () => {
-          this.ownedInventory = removeFromInventory(
-            this.ownedInventory,
-            itemId,
-          );
-          if (this.equippedLoadout[slot] === itemId) {
-            delete this.equippedLoadout[slot];
+          const currentStacks = this.itemStacks[itemId] ?? 1;
+          if (currentStacks > 1) {
+            this.itemStacks[itemId] = currentStacks - 1;
+          } else {
+            delete this.itemStacks[itemId];
+            this.ownedInventory = removeFromInventory(
+              this.ownedInventory,
+              itemId,
+            );
+            if (this.equippedLoadout[slot] === itemId) {
+              delete this.equippedLoadout[slot];
+            }
           }
           this.onDropItem?.(itemId);
           this.renderItemsTab();

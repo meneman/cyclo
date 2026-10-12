@@ -161,7 +161,7 @@ export function updateGolfBallVisual(
   const shadow = group.getObjectByName("Shadow") as THREE.Mesh | undefined;
   if (!ball || !shadow) return;
 
-  const scale = Math.min(Math.max(radiusMult, 0.5), 2.0);
+  const scale = Math.min(Math.max(radiusMult, 0.2), 8.0);
   group.scale.setScalar(scale);
   const height = Math.max(0, z);
   ball.position.z = GOLF_BALL_RADIUS + height / scale;

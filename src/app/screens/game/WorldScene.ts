@@ -12,14 +12,13 @@ import {
   WORLD_WIDTH,
 } from "../../../../shared/constants";
 import { hitPoint, predictedLanding } from "../../../../shared/ballPhysics";
-import type { EffectiveStats } from "../../../../shared/items";
+import { getItem, type EffectiveStats } from "../../../../shared/items";
 import { COURSE_ZONES } from "../../../../shared/terrain";
 import type { TerrainZone } from "../../../../shared/terrain";
 import type {
   PlayerState,
   HoleState,
   ItemPickupState,
-  TrampolineState,
 } from "../../../../shared/types";
 import type { RenderBall } from "../../../net/BallPredictor";
 
@@ -124,8 +123,8 @@ const DOT_COLOR = 0x000000;
  * characters plus near-plane clipping streaks.)
  */
 const CHARACTER_SCALE = 0.06;
-/** Camera tilt angle from vertical in radians (30° tilt = 60° pitch from the ground) */
-export const CAMERA_TILT_ANGLE = Math.PI / 6;
+/** Camera tilt angle from vertical in radians (40° tilt = 50° pitch from the ground) */
+export const CAMERA_TILT_ANGLE = (40 * Math.PI) / 180;
 /** Distance along the camera viewing axis to the ground focus point */
 export const CAMERA_DISTANCE = 300;
 /**
@@ -329,16 +328,12 @@ export class WorldScene {
   private readonly terrainTextures: THREE.Texture[] = [];
   private readonly balls = new Map<string, THREE.Group>();
   private readonly holeMeshes = new Map<string, THREE.Mesh>();
-  private readonly trampolineMeshes = new Map<string, THREE.Mesh>();
   private readonly pickupMeshes = new Map<string, THREE.Mesh>();
-  /** All pickups share one circle — same radius, gold so they read as loot */
+  /** Shared geometry for circular pickup discs */
   private readonly pickupGeometry = new THREE.CircleGeometry(
     ITEM_PICKUP_RADIUS,
     32,
   );
-  private readonly pickupMaterial = new THREE.MeshBasicMaterial({
-    color: 0xeab308,
-  });
   private readonly rangeIndicator: THREE.Mesh;
   private readonly rangeMaterial: THREE.MeshBasicMaterial;
   private readonly rangeGeometry: THREE.RingGeometry;
@@ -571,7 +566,7 @@ export class WorldScene {
     const dx = x - view.lastX;
     const dy = y - view.lastY;
     view.yaw.position.set(x, -y, z ?? 0);
-    const clampedPlayerScale = Math.min(Math.max(playerScaleMult, 0.7), 1.5);
+    const clampedPlayerScale = Math.min(Math.max(playerScaleMult, 0.3), 5.0);
     view.yaw.scale.setScalar(CHARACTER_SCALE * clampedPlayerScale);
     view.bloodStain.position.set(x, -y, BLOOD_STAIN_ELEVATION);
     this.updateShadow(view, x, y, clampedPlayerScale);
@@ -650,49 +645,35 @@ export class WorldScene {
     }
   }
 
-  public syncTrampolines(trampolines: TrampolineState[] = []): void {
-    const alive = new Set<string>();
-    for (const t of trampolines || []) {
-      alive.add(t.id);
-      let mesh = this.trampolineMeshes.get(t.id);
-      if (!mesh) {
-        const geom = new THREE.CircleGeometry(t.radius, 32);
-        const mat = new THREE.MeshBasicMaterial({ color: 0xff00ff }); // Magenta to stand out
-        mesh = new THREE.Mesh(geom, mat);
-        mesh.position.set(t.x, -t.y, 0.05); // Above holes
-        this.scene.add(mesh);
-        this.trampolineMeshes.set(t.id, mesh);
-      } else {
-        mesh.position.set(t.x, -t.y, 0.05);
-      }
-    }
-
-    for (const [id, mesh] of this.trampolineMeshes) {
-      if (!alive.has(id)) {
-        this.scene.remove(mesh);
-        this.trampolineMeshes.delete(id);
-      }
-    }
-  }
-
   public syncPickups(pickups: ItemPickupState[] = []): void {
     const alive = new Set<string>();
     for (const p of pickups || []) {
       alive.add(p.id);
       let mesh = this.pickupMeshes.get(p.id);
+      const color = getItem(p.itemId)?.color ?? 0xeab308;
       if (!mesh) {
-        mesh = new THREE.Mesh(this.pickupGeometry, this.pickupMaterial);
+        const material = new THREE.MeshBasicMaterial({ color });
+        mesh = new THREE.Mesh(this.pickupGeometry, material);
         mesh.position.set(p.x, -p.y, 0.04);
         this.scene.add(mesh);
         this.pickupMeshes.set(p.id, mesh);
       } else {
         mesh.position.set(p.x, -p.y, 0.04);
+        if (
+          mesh.material instanceof THREE.MeshBasicMaterial &&
+          mesh.material.color.getHex() !== color
+        ) {
+          mesh.material.color.setHex(color);
+        }
       }
     }
 
     for (const [id, mesh] of this.pickupMeshes) {
       if (!alive.has(id)) {
         this.scene.remove(mesh);
+        if (mesh.material instanceof THREE.Material) {
+          mesh.material.dispose();
+        }
         this.pickupMeshes.delete(id);
       }
     }
@@ -833,12 +814,11 @@ export class WorldScene {
       this.scene.remove(mesh);
     }
     this.holeMeshes.clear();
-    for (const mesh of this.trampolineMeshes.values()) {
-      this.scene.remove(mesh);
-    }
-    this.trampolineMeshes.clear();
     for (const mesh of this.pickupMeshes.values()) {
       this.scene.remove(mesh);
+      if (mesh.material instanceof THREE.Material) {
+        mesh.material.dispose();
+      }
     }
     this.pickupMeshes.clear();
     this.rangeIndicator.visible = false;
@@ -906,7 +886,6 @@ export class WorldScene {
     this.fieldMaterial.dispose();
     this.fieldTexture.dispose();
     this.pickupGeometry.dispose();
-    this.pickupMaterial.dispose();
     this.rangeGeometry.dispose();
     this.rangeMaterial.dispose();
     for (const child of this.landingMarker.children) {

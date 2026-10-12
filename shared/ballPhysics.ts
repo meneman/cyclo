@@ -22,13 +22,7 @@ import {
 import { COURSE_ZONES, getTerrainPropertiesAt } from "./terrain";
 import type { TerrainZone } from "./terrain";
 import type { EffectiveStats } from "./items";
-import type {
-  BallState,
-  HoleState,
-  PlayerState,
-  Vector2,
-  TrampolineState,
-} from "./types";
+import type { BallState, HoleState, PlayerState, Vector2 } from "./types";
 
 /**
  * Golf ball physics and swing→ball interaction. Every function here is pure
@@ -281,7 +275,6 @@ export function stepBall(
   onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
-  trampolines?: Iterable<TrampolineState>,
   stats?: EffectiveStats,
   getVictimStats?: (playerId: string) => EffectiveStats | undefined,
 ): BallState {
@@ -296,7 +289,6 @@ export function stepBall(
       onPlayerHit,
       holes,
       onHoleScored,
-      trampolines,
       stats,
       getVictimStats,
     );
@@ -321,7 +313,6 @@ function substep(
   onPlayerHit?: (ball: BallState, victim: PlayerState) => void,
   holes?: Iterable<HoleState>,
   onHoleScored?: (ball: BallState, hole: HoleState) => void,
-  trampolines?: Iterable<TrampolineState>,
   stats?: EffectiveStats,
   getVictimStats?: (playerId: string) => EffectiveStats | undefined,
 ): void {
@@ -395,21 +386,7 @@ function substep(
 
   // 5. Constraints / Collisions
   if (ball.z <= 0) {
-    let trampolined = false;
-    if (trampolines) {
-      for (const tramp of trampolines) {
-        const dist = Math.hypot(ball.x - tramp.x, ball.y - tramp.y);
-        if (dist <= tramp.radius) {
-          ball.vz = tramp.bounceVelocity;
-          ball.z = 0.01; // Detach from ground
-          ball.resting = false;
-          trampolined = true;
-          break;
-        }
-      }
-    }
-
-    if (isAirborne && !trampolined) {
+    if (isAirborne) {
       ball.z = 0;
       if (-ball.vz > BALL_MIN_BOUNCE_SPEED) {
         const terrain = getTerrainPropertiesAt(ball.x, ball.y, zones);

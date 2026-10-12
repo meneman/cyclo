@@ -7,7 +7,11 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "../../shared/constants";
-import type { BallState, PlayerSnapshot } from "../../shared/types";
+import type {
+  BallState,
+  ItemPickupState,
+  PlayerSnapshot,
+} from "../../shared/types";
 import type { SocketData } from "./world";
 import { World } from "./world";
 
@@ -18,10 +22,12 @@ import { World } from "./world";
 function snapshots(world: World): {
   snapshot(): PlayerSnapshot[];
   ballSnapshot(): BallState[];
+  pickupSnapshot(): ItemPickupState[];
 } {
   return world as unknown as {
     snapshot(): PlayerSnapshot[];
     ballSnapshot(): BallState[];
+    pickupSnapshot(): ItemPickupState[];
   };
 }
 
@@ -29,6 +35,23 @@ function createMockSocket(sent: string[]): ServerWebSocket<SocketData> {
   return {
     send: (data: string) => sent.push(data),
   } as unknown as ServerWebSocket<SocketData>;
+}
+
+function setPlayerPosition(
+  world: World,
+  id: string,
+  x: number,
+  y?: number,
+): void {
+  const conn = (
+    world as unknown as {
+      connections: Map<string, { state: { x: number; y: number } }>;
+    }
+  ).connections.get(id);
+  if (conn) {
+    conn.state.x = x;
+    if (y !== undefined) conn.state.y = y;
+  }
 }
 
 describe("World combat and hole scoring", () => {
@@ -105,7 +128,7 @@ describe("World combat and hole scoring", () => {
 });
 
 describe("World item pickups", () => {
-  test("Welcome carries 3 pickups side by side above the middle", () => {
+  test("Welcome carries 2 pickups side by side above the middle", () => {
     const world = new World();
     const sent: string[] = [];
     world.addPlayer("p1", createMockSocket(sent));
@@ -129,11 +152,11 @@ describe("World item pickups", () => {
       })
       .find((msg) => msg.type === "welcome");
     assert.ok(welcome);
-    assert.equal(welcome.pickups?.length, 3);
+    assert.equal(welcome.pickups?.length, 2);
     const byX = [...(welcome.pickups ?? [])].sort((a, b) => a.x - b.x);
     assert.deepEqual(
       byX.map((p) => p.x),
-      [WORLD_WIDTH / 2 - 140, WORLD_WIDTH / 2, WORLD_WIDTH / 2 + 140],
+      [WORLD_WIDTH / 2 - 100, WORLD_WIDTH / 2 + 100],
     );
     for (const p of byX) {
       assert.equal(p.y, WORLD_HEIGHT / 2 - ITEM_PICKUP_Y_OFFSET);
@@ -141,7 +164,7 @@ describe("World item pickups", () => {
     }
     assert.deepEqual(
       byX.map((p) => p.itemId),
-      ["titan-ball", "tailwind", "minnow"],
+      ["titan-ball", "tailwind"],
     );
   });
 
@@ -149,7 +172,8 @@ describe("World item pickups", () => {
     const world = new World();
     const sent: string[] = [];
     world.addPlayer("p1", createMockSocket(sent));
-    // Spawn (750,750) heads straight up into the tailwind pickup at (750,550)
+    setPlayerPosition(world, "p1", WORLD_WIDTH / 2 + 100);
+    // Spawn (850,750) heads straight up into the tailwind pickup at (850,550)
     world.handleMessage("p1", {
       type: "input",
       seq: 1,
@@ -181,6 +205,7 @@ describe("World item pickups", () => {
     const world = new World();
     const sent: string[] = [];
     world.addPlayer("p1", createMockSocket(sent));
+    setPlayerPosition(world, "p1", WORLD_WIDTH / 2 + 100);
     world.handleMessage("p1", {
       type: "input",
       seq: 1,
@@ -233,6 +258,7 @@ describe("World item pickups", () => {
     ]);
     // Walk up into the tailwind pickup: 6th distinct item evicts cannonball,
     // which also unequips it from the ball slot.
+    setPlayerPosition(world, "p1", WORLD_WIDTH / 2 + 100);
     world.handleMessage("p1", {
       type: "input",
       seq: 1,
@@ -326,5 +352,358 @@ describe("World item pickups", () => {
       .snapshot()
       .find((p) => p.id === "p1");
     assert.deepEqual(player?.inventory, []);
+  });
+
+  test("Walking onto pickup stacks, standing still does not farm, stepping off and back on stacks up to 5 without despawn", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    setPlayerPosition(world, "p1", WORLD_WIDTH / 2 + 100);
+
+    const mockServer = {
+      publish: () => {},
+    } as unknown as Server<SocketData>;
+    const testable = world as unknown as {
+      tick: (server: Server<SocketData>) => void;
+    };
+
+    // Pickups start available
+    let pickups = snapshots(world).pickupSnapshot();
+    assert.equal(pickups.length, 2);
+    assert.ok(pickups.some((p) => p.itemId === "tailwind"));
+
+    // Walk up into tailwind pickup
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 1,
+      input: {
+        up: true,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+
+    for (let i = 0; i < 30; i++) {
+      testable.tick(mockServer);
+    }
+
+    // Stop moving so player stays standing on the pickup circle
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 2,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+
+    for (let i = 0; i < 5; i++) {
+      testable.tick(mockServer);
+    }
+
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.deepEqual(player?.inventory, ["tailwind"]);
+    assert.equal(player?.itemStacks?.["tailwind"], 1);
+
+    // Pickups NEVER despawn: still 2 in snapshot
+    pickups = snapshots(world).pickupSnapshot();
+    assert.equal(pickups.length, 2);
+    assert.ok(pickups.some((p) => p.itemId === "tailwind"));
+
+    // Standing still on the pickup circle cannot farm stacks
+    for (let i = 0; i < 100; i++) {
+      testable.tick(mockServer);
+    }
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 1);
+
+    let seqCounter = 3;
+    const stepOffAndOn = () => {
+      // Step off the pickup circle (walk down)
+      world.handleMessage("p1", {
+        type: "input",
+        seq: seqCounter++,
+        input: {
+          up: false,
+          down: true,
+          left: false,
+          right: false,
+          charging: false,
+        },
+      });
+      for (let i = 0; i < 20; i++) {
+        testable.tick(mockServer);
+      }
+      // Stop moving
+      world.handleMessage("p1", {
+        type: "input",
+        seq: seqCounter++,
+        input: {
+          up: false,
+          down: false,
+          left: false,
+          right: false,
+          charging: false,
+        },
+      });
+      for (let i = 0; i < 5; i++) {
+        testable.tick(mockServer);
+      }
+      // Walk back on
+      world.handleMessage("p1", {
+        type: "input",
+        seq: seqCounter++,
+        input: {
+          up: true,
+          down: false,
+          left: false,
+          right: false,
+          charging: false,
+        },
+      });
+      for (let i = 0; i < 20; i++) {
+        testable.tick(mockServer);
+      }
+      // Stop moving
+      world.handleMessage("p1", {
+        type: "input",
+        seq: seqCounter++,
+        input: {
+          up: false,
+          down: false,
+          left: false,
+          right: false,
+          charging: false,
+        },
+      });
+      for (let i = 0; i < 5; i++) {
+        testable.tick(mockServer);
+      }
+    };
+
+    // Stack 2
+    stepOffAndOn();
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 2);
+
+    // Pickups still present
+    pickups = snapshots(world).pickupSnapshot();
+    assert.equal(pickups.length, 2);
+
+    // Stack 3
+    stepOffAndOn();
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 3);
+
+    // Stack 4
+    stepOffAndOn();
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 4);
+
+    // Stack 5 (cap)
+    stepOffAndOn();
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 5);
+
+    // 6th step: remains capped at 5
+    stepOffAndOn();
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 5);
+  });
+
+  test("Drop decrements stack by 1 and unequips only when hitting 0", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+    setPlayerPosition(world, "p1", WORLD_WIDTH / 2 + 100);
+
+    const mockServer = {
+      publish: () => {},
+    } as unknown as Server<SocketData>;
+    const testable = world as unknown as {
+      tick: (server: Server<SocketData>) => void;
+    };
+
+    // Grab tailwind: walk up 30 ticks, then stop
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 1,
+      input: {
+        up: true,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    for (let i = 0; i < 30; i++) {
+      testable.tick(mockServer);
+    }
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 2,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    for (let i = 0; i < 5; i++) {
+      testable.tick(mockServer);
+    }
+
+    // Step off (down 20 ticks) and back on (up 20 ticks) to get 2nd stack
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 3,
+      input: {
+        up: false,
+        down: true,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    for (let i = 0; i < 20; i++) {
+      testable.tick(mockServer);
+    }
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 4,
+      input: {
+        up: true,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    for (let i = 0; i < 20; i++) {
+      testable.tick(mockServer);
+    }
+    world.handleMessage("p1", {
+      type: "input",
+      seq: 5,
+      input: {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        charging: false,
+      },
+    });
+    for (let i = 0; i < 5; i++) {
+      testable.tick(mockServer);
+    }
+
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 2);
+    assert.equal(player?.loadout?.club, "tailwind");
+
+    // First drop: decrements stack to 1, still equipped and in inventory
+    world.handleMessage("p1", { type: "dropItem", itemId: "tailwind" });
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], 1);
+    assert.deepEqual(player?.inventory, ["tailwind"]);
+    assert.equal(player?.loadout?.club, "tailwind");
+
+    // Second drop: decrements to 0 -> removed from inventory, unequipped
+    world.handleMessage("p1", { type: "dropItem", itemId: "tailwind" });
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["tailwind"], undefined);
+    assert.deepEqual(player?.inventory, []);
+    assert.equal(player?.loadout?.club, undefined);
+  });
+
+  test("Menu equip does not increment stacks beyond 1", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+
+    world.handleMessage("p1", {
+      type: "equipItem",
+      slot: "club",
+      itemId: "driver-x",
+    });
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["driver-x"], 1);
+
+    // Re-equipping via menu is a no-op for stacks
+    world.handleMessage("p1", {
+      type: "equipItem",
+      slot: "club",
+      itemId: "driver-x",
+    });
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["driver-x"], 1);
+  });
+
+  test("FIFO eviction clears stack entry for the evicted item", () => {
+    const world = new World();
+    const sent: string[] = [];
+    world.addPlayer("p1", createMockSocket(sent));
+
+    for (const itemId of [
+      "cannonball",
+      "driver-x",
+      "wrecker",
+      "sniper",
+      "tank-suit",
+    ]) {
+      const slot =
+        itemId === "cannonball"
+          ? "ball"
+          : itemId === "tank-suit"
+            ? "outfit"
+            : "club";
+      world.handleMessage("p1", { type: "equipItem", slot, itemId });
+    }
+    let player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["cannonball"], 1);
+
+    // Equip 6th item -> evicts cannonball
+    world.handleMessage("p1", {
+      type: "equipItem",
+      slot: "ball",
+      itemId: "titan-ball",
+    });
+    player = snapshots(world)
+      .snapshot()
+      .find((p) => p.id === "p1");
+    assert.equal(player?.itemStacks?.["cannonball"], undefined);
+    assert.equal(player?.itemStacks?.["titan-ball"], 1);
   });
 });

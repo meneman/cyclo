@@ -68,13 +68,17 @@ export class InventoryPanel extends Container {
   public setInventory(
     inventory: readonly string[],
     loadout?: PlayerLoadout | null,
+    itemStacks?: Record<string, number> | null,
   ): void {
     const equipped = new Set(
       [loadout?.ball, loadout?.club, loadout?.outfit].filter(
         (id): id is string => typeof id === "string",
       ),
     );
-    const key = `${inventory.join(",")}|${[...equipped].sort().join(",")}`;
+    const stacksKey = inventory
+      .map((id) => `${id}:${itemStacks?.[id] ?? 1}`)
+      .join(",");
+    const key = `${inventory.join(",")}|${[...equipped].sort().join(",")}|${stacksKey}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
 
@@ -89,7 +93,9 @@ export class InventoryPanel extends Container {
         continue;
       }
       const isEquipped = equipped.has(item.id);
-      row.text = `${isEquipped ? "▸ " : "· "}${item.name}`;
+      const count = itemStacks?.[item.id] ?? 1;
+      const stackSuffix = count > 1 ? ` x${count}` : "";
+      row.text = `${isEquipped ? "▸ " : "· "}${item.name}${stackSuffix}`;
       row.style.fill = isEquipped ? 0x58a6ff : 0xe6edf3;
     }
   }

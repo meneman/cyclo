@@ -7,11 +7,15 @@ import {
   ITEM_CATALOG,
   ITEM_PICKUP_SPAWNS,
   MAX_INVENTORY_ITEMS,
+  MAX_STACKS_PER_ITEM,
   STAT_LIMITS,
   addToInventoryFifo,
+  formatItemStatsText,
   getItem,
+  isItemAtLimit,
   isValidItemForSlot,
   normalizeInventory,
+  normalizeStacks,
   removeFromInventory,
   resolveBallColor,
   resolvePlayerColor,
@@ -154,7 +158,7 @@ describe("new effect cards", () => {
     assert.equal(isValidItemForSlot("titan-ball", "club"), false);
     const stats = resolveStats({ ball: "titan-ball" });
     assert.ok(Math.abs(stats.ballRadiusMult - 1.5) < 1e-9);
-    assert.ok(Math.abs(stats.playerRadiusMult - 1.3) < 1e-9);
+    assert.ok(Math.abs(stats.playerRadiusMult - 1.38) < 1e-9);
   });
 
   test("tailwind speeds ball flight and slows the player", () => {
@@ -168,14 +172,21 @@ describe("new effect cards", () => {
     assert.ok(Math.abs((ball.gravityMult ?? 1) - 1.5) < 1e-9);
   });
 
-  test("minnow shrinks the player in the outfit slot", () => {
-    assert.equal(isValidItemForSlot("minnow", "outfit"), true);
-    assert.equal(isValidItemForSlot("minnow", "ball"), false);
-    const stats = resolveStats({ outfit: "minnow" });
-    assert.ok(Math.abs(stats.playerRadiusMult - 0.75) < 1e-9);
+  test("titan-ball and tailwind have distinct colors", () => {
+    const titan = getItem("titan-ball");
+    const tailwind = getItem("tailwind");
+    assert.ok(titan && tailwind);
+    assert.notEqual(titan.color, tailwind.color);
   });
 
-  test("titan-ball extends collision reach, minnow shrinks it", () => {
+  test("swift-tee shrinks the player in the outfit slot", () => {
+    assert.equal(isValidItemForSlot("swift-tee", "outfit"), true);
+    assert.equal(isValidItemForSlot("swift-tee", "ball"), false);
+    const stats = resolveStats({ outfit: "swift-tee" });
+    assert.ok(Math.abs(stats.playerRadiusMult - 0.85) < 1e-9);
+  });
+
+  test("titan-ball extends collision reach, swift-tee shrinks it", () => {
     const target = makePlayer({ id: "target", x: 116, y: 100 });
     const baseBall = createBall("b-base", "shooter", 0, 100, 100);
     baseBall.lastHitBy = "shooter";
@@ -195,16 +206,16 @@ describe("new effect cards", () => {
       true,
     );
 
-    // Distance 15: base reach is 15.5 (hit), minnow reach shrinks below it (miss)
+    // Distance 15: base reach is 15.5 (hit), swift-tee reach shrinks below it (miss)
     const near = makePlayer({ id: "near", x: 115, y: 100 });
-    const minnowStats = resolveStats({ outfit: "minnow" });
+    const swiftStats = resolveStats({ outfit: "swift-tee" });
     const grazing = createBall("b-graze", "shooter", 0, 100, 100);
     grazing.lastHitBy = "shooter";
     grazing.resting = false;
     grazing.vx = 60;
     grazing.z = 5;
     assert.equal(
-      resolveBallPlayerCollision(grazing, near, undefined, minnowStats),
+      resolveBallPlayerCollision(grazing, near, undefined, swiftStats),
       false,
     );
   });
@@ -267,12 +278,12 @@ describe("inventory (max 5, FIFO)", () => {
 });
 
 describe("item pickup spawns", () => {
-  test("one pickup per effect card, side by side, covering all slots", () => {
-    assert.equal(ITEM_PICKUP_SPAWNS.length, 3);
+  test("one pickup per effect card, side by side", () => {
+    assert.equal(ITEM_PICKUP_SPAWNS.length, 2);
     const ids = ITEM_PICKUP_SPAWNS.map((s) => s.itemId);
     assert.equal(new Set(ids).size, ids.length);
     const slots = ITEM_PICKUP_SPAWNS.map((s) => getItem(s.itemId)?.slot);
-    assert.deepEqual([...slots].sort(), ["ball", "club", "outfit"]);
+    assert.deepEqual([...slots].sort(), ["ball", "club"]);
     const dxs = ITEM_PICKUP_SPAWNS.map((s) => s.dx);
     assert.equal(new Set(dxs).size, dxs.length);
   });
@@ -350,5 +361,78 @@ describe("items affect physics, damage, size", () => {
     const ball = createBall("b1", "p1", 0, hp.x + 20, hp.y);
     assert.equal(findHittableBall(player, [ball]), null);
     assert.equal(findHittableBall(player, [ball], 0, stats), ball);
+  });
+});
+
+describe("item stacking and normalization", () => {
+  test("normalizeStacks sanitizes untrusted input", () => {
+    assert.deepEqual(normalizeStacks(undefined), {});
+    assert.deepEqual(normalizeStacks(null), {});
+    assert.deepEqual(normalizeStacks("foo"), {});
+    assert.deepEqual(normalizeStacks([1, 2, 3]), {});
+    assert.deepEqual(
+      normalizeStacks({
+        tailwind: 2,
+        unknown: 5,
+        cannonball: 10, // clamped to MAX_STACKS_PER_ITEM (5)
+        "swift-tee": -1, // clamped to min 1
+        "driver-x": NaN,
+      }),
+      {
+        tailwind: 2,
+        cannonball: MAX_STACKS_PER_ITEM,
+        "swift-tee": 1,
+      },
+    );
+  });
+
+  test("stacks = 1 matches default single-copy resolveStats exactly", () => {
+    const single = resolveStats({ club: "tailwind" });
+    const stacked1 = resolveStats({ club: "tailwind" }, { tailwind: 1 });
+    assert.deepEqual(single, stacked1);
+  });
+
+  test("stacks exponentiate mults and scale adds", () => {
+    // sniper: hitRadiusAdd: 10, carryMult: 0.92, gravityMult: 0.9
+    const s1 = resolveStats({ club: "sniper" }, { sniper: 1 });
+    const s2 = resolveStats({ club: "sniper" }, { sniper: 2 });
+    assert.equal(s1.hitRadiusAdd, 10);
+    // 10 * 2 = 20 (within expanded STAT_LIMITS.hitRadiusAdd [0, 60])
+    assert.equal(s2.hitRadiusAdd, 20);
+    assert.ok(Math.abs(s2.carryMult - Math.pow(0.92, 2)) < 1e-6);
+    assert.ok(Math.abs(s2.gravityMult - Math.pow(0.9, 2)) < 1e-6);
+  });
+
+  test("stacks cap at MAX_STACKS_PER_ITEM = 5", () => {
+    const s5 = resolveStats({ club: "wrecker" }, { wrecker: 5 });
+    const s9 = resolveStats({ club: "wrecker" }, { wrecker: 9 });
+    assert.deepEqual(s5, s9);
+  });
+
+  test("5 stacks of titan-ball scales figure to 5x size", () => {
+    const titan = getItem("titan-ball");
+    assert.ok(titan);
+    const stats5 = resolveStats({ ball: "titan-ball" }, { "titan-ball": 5 });
+    assert.ok(Math.abs(stats5.playerRadiusMult - 5.0) < 1e-6);
+    assert.ok(stats5.ballRadiusMult > 7.0);
+  });
+
+  test("isItemAtLimit detects when stats hit clamp limits", () => {
+    const wrecker = getItem("wrecker");
+    assert.ok(wrecker);
+    // wrecker: knockdownMult: 2.0 (limit 10.0) -> at 1 stack 2.0 < 10.0, at 5 stacks 2^5 = 32 >= 10.0
+    assert.equal(isItemAtLimit(wrecker, 1), false);
+    assert.equal(isItemAtLimit(wrecker, 5), true);
+  });
+
+  test("formatItemStatsText produces human-readable effects with MAX badges", () => {
+    const wrecker = getItem("wrecker");
+    assert.ok(wrecker);
+    const text1 = formatItemStatsText(wrecker, 1);
+    assert.ok(text1.includes("2.0x Knockdown"));
+    assert.ok(!text1.includes("MAX"));
+
+    const text5 = formatItemStatsText(wrecker, 5);
+    assert.ok(text5.includes("Knockdown (MAX)"));
   });
 });

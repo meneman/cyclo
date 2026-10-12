@@ -23,6 +23,13 @@ describe("InventoryPanel", () => {
     assert.ok(texts.includes("▸ Tailwind"));
   });
 
+  test("setInventory shows stack count suffix when greater than 1", () => {
+    const panel = new InventoryPanel();
+    panel.setInventory(["tailwind"], { club: "tailwind" }, { tailwind: 2 });
+    const texts = textsOf(panel);
+    assert.ok(texts.includes("▸ Tailwind x2"));
+  });
+
   test("reposition anchors panel to the bottom right", () => {
     const panel = new InventoryPanel();
     panel.reposition(1920, 1080, 12);

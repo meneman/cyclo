@@ -1,12 +1,14 @@
 import { Container, Graphics, Text } from "pixi.js";
 
 import type { PlayerSnapshot } from "../../../../shared/types";
+import { CAMERA_TILT_ANGLE } from "./WorldScene";
 
 /**
- * Label height above the character's feet, in screen px: at 30° camera tilt,
- * models stand ~43px tall on screen, so 56px floats neatly just above the head.
+ * Label height above the character's feet, in screen px:
+ * Dynamically scales with camera tilt angle so the name tag floats neatly
+ * ~14px above the character's head on screen.
  */
-const HEAD_OFFSET_PX = 56;
+const HEAD_OFFSET_PX = Math.round(28.8 * Math.sin(CAMERA_TILT_ANGLE) * 3 + 14);
 
 /** Height of the load bubble above the feet, directly above the name tag */
 const LOAD_BUBBLE_OFFSET_PX = HEAD_OFFSET_PX + 18;
@@ -37,6 +39,7 @@ export class PlayerEntity extends Container {
   private readonly loadBubbleText: Text;
   private loadBubbleTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastSeenSwingSeq = 0;
+  private currentScaleMult = 1;
 
   constructor(snapshot: PlayerSnapshot) {
     super();
@@ -114,7 +117,21 @@ export class PlayerEntity extends Container {
       typeof document.createElement === "function"
         ? this.nameLabel.width / 2
         : 30;
-    this.colorDot.position.set(-halfWidth - 8, -HEAD_OFFSET_PX - 8);
+    const offset = Math.round(HEAD_OFFSET_PX * this.currentScaleMult);
+    this.colorDot.position.set(-halfWidth - 8, -offset - 8);
+  }
+
+  public setScaleMult(scaleMult: number = 1): void {
+    const clamped = Math.max(0.3, Math.min(5.0, scaleMult));
+    if (Math.abs(clamped - this.currentScaleMult) < 0.01) return;
+    this.currentScaleMult = clamped;
+    const offset = Math.round(HEAD_OFFSET_PX * clamped);
+    this.nameLabel.y = -offset;
+    this.loadBubble.y = -(offset + 18);
+    this.repositionColorDot();
+    if (this.chatBubble) {
+      this.chatBubble.y = -offset - 20;
+    }
   }
 
   public setColor(color: number): void {
@@ -179,7 +196,8 @@ export class PlayerEntity extends Container {
 
     const bubble = new Container();
     bubble.addChild(bg, label);
-    bubble.y = -HEAD_OFFSET_PX - 20;
+    const offset = Math.round(HEAD_OFFSET_PX * this.currentScaleMult);
+    bubble.y = -offset - 20;
     this.mainUi.addChild(bubble);
 
     this.chatBubble = bubble;

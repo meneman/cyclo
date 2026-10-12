@@ -63,6 +63,14 @@ kanban-plugin: board
 
 ## done
 
+- [x] Item Stacking (up to 5 stacks), 2 Distinctly Colored Effect Cards & Trampoline Removal
+  - Scope: Allow items to be collected up to 5 times (`MAX_STACKS_PER_ITEM = 5`), scaling stats exponentially for multipliers and linearly for additions, capped by `STAT_LIMITS` with explicit MAX badge feedback.
+  - Pickup Cards: Exactly 2 effect cards on the map: Titan Ball (`0x3b82f6`, Electric Blue, aligned with Lane 1) and Tailwind (`0xec4899`, Hot Pink, aligned with Lane 2). 3rd card (`minnow`) completely removed. Trampoline mechanic completely removed.
+  - Distinct Colors: Each item has its own distinct color in the catalog, 3D scene ground discs, floating HUD text, and menu accent strips.
+  - Pickup lifecycle: Pickups never despawn (remain visible in world). Standing still inside the pickup does not farm stacks; stepping off and re-entering immediately increments stacks up to 5.
+  - State & Drops: `itemStacks?: Record<string, number>` on `PlayerState`. Menu equip grants first copy only; drops decrement 1 stack; FIFO eviction drops entire oldest stack and cleans up loadout.
+  - UI: `GameMenu.ts` and `InventoryPanel.ts` display stack indicators (`x2`..`x5`), scaled modifier preview text, distinct item color accents, and MAX badge.
+  - Erledigt 2026-10-12: Item-Stacking auf 5 Stacks (`MAX_STACKS_PER_ITEM = 5`) erhöht. `STAT_LIMITS` und 3D-Skalierungs-Clamps in `WorldScene.ts` und `GolfBall.ts` erweitert, sodass Items spürbar bis zu 5 Stacks wachsen. 5x Titan Ball (`playerRadiusMult = 1.38`) skaliert die Spielfigur bis zur 5-fachen Riesengestalt und den Ball bis zu 7.6x, wobei Namensschilder und Ladebalken in `PlayerEntity.ts` proportional mitwandern. 3. Effektkarte (`minnow`) entfernt, verbleibende 2 Effektkarten (`titan-ball` in Electric Blue und `tailwind` in Hot Pink) mit jeweils eigener Farbe versehen. Kamera-Tilt auf 40° erhöht. 166/166 Tests grün (`bun test`), ESLint, Server `tsc` und Vite Production Build fehlerfrei. Checkliste in `docs/local/MANUAL_TESTS.md` aktualisiert.
 - [x] 1v1 Match Rooms & 10-Second Countdown (Race to 10 points)
   - Scope: Multi-room server architecture with 1v1 match lifecycle, 10s warmup countdown, tee spawns, and first-to-10-points win condition.
   - Room Architecture: Server `RoomManager` decouples global world into isolated match rooms with per-room Bun pub/sub topics (`room:${roomId}`).

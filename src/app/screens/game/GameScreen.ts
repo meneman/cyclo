@@ -31,7 +31,6 @@ import type {
   ItemPickupState,
   MatchState,
   PlayerState,
-  TrampolineState,
 } from "../../../../shared/types";
 import { BallPredictor } from "../../../net/BallPredictor";
 import { resolveWsUrl } from "../../../net/config";
@@ -102,7 +101,6 @@ export class GameScreen extends Container {
   private readonly interpolator = new SnapshotInterpolator(
     INTERPOLATION_DELAY_MS,
   );
-  private trampolines: TrampolineState[] = [];
   private readonly ballPredictor = new BallPredictor();
   private pickups: ItemPickupState[] = [];
   private readonly pickupLabels = new Map<string, Text>();
@@ -230,9 +228,17 @@ export class GameScreen extends Container {
       );
       if (itemId) {
         // Mirror the server FIFO so the HUD never flickers on full.
+        const wasOwned = inv.includes(itemId);
         const result = addToInventoryFifo(inv, itemId);
         inv = result.inventory;
+        if (!wasOwned && this.localState) {
+          if (!this.localState.itemStacks) this.localState.itemStacks = {};
+          this.localState.itemStacks[itemId] = 1;
+        }
         if (result.evicted !== undefined) {
+          if (this.localState?.itemStacks) {
+            delete this.localState.itemStacks[result.evicted];
+          }
           const evictedDef = getItem(result.evicted);
           if (evictedDef && next[evictedDef.slot] === result.evicted) {
             delete next[evictedDef.slot];
@@ -248,21 +254,29 @@ export class GameScreen extends Container {
       }
       userSettings.setPlayerLoadout(next);
       this.persistInventory(inv);
-      this.gameMenu.setInventory(inv);
-      this.inventoryPanel.setInventory(inv, next);
+      this.gameMenu.setInventory(inv, this.localState?.itemStacks);
+      this.inventoryPanel.setInventory(inv, next, this.localState?.itemStacks);
     };
     this.gameMenu.onDropItem = (itemId) => {
       this.network.send({ type: ClientMessageType.DropItem, itemId });
       const def = getItem(itemId);
-      const inv = removeFromInventory(
-        normalizeInventory(
-          this.localState?.inventory ?? userSettings.getPlayerInventory(),
-        ),
-        itemId,
+      const stacks = this.localState?.itemStacks?.[itemId] ?? 1;
+      let inv = normalizeInventory(
+        this.localState?.inventory ?? userSettings.getPlayerInventory(),
       );
       const next = { ...(this.localState?.loadout ?? {}) };
-      if (def && next[def.slot] === itemId) {
-        delete next[def.slot];
+      if (stacks > 1) {
+        if (this.localState?.itemStacks) {
+          this.localState.itemStacks[itemId] = stacks - 1;
+        }
+      } else {
+        if (this.localState?.itemStacks) {
+          delete this.localState.itemStacks[itemId];
+        }
+        inv = removeFromInventory(inv, itemId);
+        if (def && next[def.slot] === itemId) {
+          delete next[def.slot];
+        }
       }
       if (this.localState) {
         this.localState.loadout = next;
@@ -271,8 +285,8 @@ export class GameScreen extends Container {
       userSettings.setPlayerLoadout(next);
       this.persistInventory(inv);
       this.gameMenu.setLoadout(next);
-      this.gameMenu.setInventory(inv);
-      this.inventoryPanel.setInventory(inv, next);
+      this.gameMenu.setInventory(inv, this.localState?.itemStacks);
+      this.inventoryPanel.setInventory(inv, next, this.localState?.itemStacks);
     };
     this.addChild(this.gameMenu);
   }
@@ -396,21 +410,18 @@ export class GameScreen extends Container {
     const isMoving = directionFromInput(currentInput) !== null;
 
     const localStats = this.localState
-      ? resolveStats(this.localState.loadout)
+      ? resolveStats(this.localState.loadout, this.localState.itemStacks)
       : undefined;
     if (this.localState) {
       // Client-side prediction: move immediately using the same simulation
       // step the server runs, then gently reconciled in reconcileLocalPlayer().
-      stepPlayer(
-        this.localState,
-        currentInput,
-        dtSeconds,
-        this.trampolines,
-        localStats,
-      );
+      stepPlayer(this.localState, currentInput, dtSeconds, localStats);
       const localKnockedDown = (this.localState.knockdownTimer ?? 0) > 0;
       this.worldScene.setKnockdown(this.localState.id, localKnockedDown);
       this.entities.get(this.localState.id)?.setKnockedDown(localKnockedDown);
+      this.entities
+        .get(this.localState.id)
+        ?.setScaleMult(localStats?.playerRadiusMult ?? 1);
       this.worldScene.move(
         this.localState.id,
         this.localState.x,
@@ -452,7 +463,8 @@ export class GameScreen extends Container {
         const remoteKnockedDown = (sample.knockdownTimer ?? 0) > 0;
         this.worldScene.setKnockdown(id, remoteKnockedDown);
         this.entities.get(id)?.setKnockedDown(remoteKnockedDown);
-        const remoteStats = resolveStats(sample.loadout);
+        const remoteStats = resolveStats(sample.loadout, sample.itemStacks);
+        this.entities.get(id)?.setScaleMult(remoteStats.playerRadiusMult);
         this.worldScene.move(
           id,
           sample.x,
@@ -483,7 +495,7 @@ export class GameScreen extends Container {
       }
     }
 
-    this.ballPredictor.update(dtSeconds, this.trampolines);
+    this.ballPredictor.update(dtSeconds);
     this.worldScene.syncBalls(this.ballPredictor.getBalls());
 
     const hittable = this.localState
@@ -602,6 +614,7 @@ export class GameScreen extends Container {
       list,
       this.localState?.loadout ?? userSettings.getPlayerLoadout(),
       this.localState?.inventory ?? userSettings.getPlayerInventory(),
+      this.localState?.itemStacks,
     );
     this.lastMenuSyncKey = "";
     this.input.setEnabled(!this.chatBox.editing && !this.gameMenu.isOpen);
@@ -645,13 +658,11 @@ export class GameScreen extends Container {
         for (const ball of message.balls) {
           this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
         }
-        this.trampolines = message.trampolines;
         // Older servers don't send pickups yet — default instead of crashing.
         this.pickups = message.pickups ?? [];
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncBalls(this.ballPredictor.getBalls());
         this.worldScene?.syncHoles(message.holes);
-        this.worldScene?.syncTrampolines(message.trampolines);
         this.worldScene?.syncPickups(this.pickups);
         this.syncPickupLabels();
         for (const player of message.players) {
@@ -699,10 +710,14 @@ export class GameScreen extends Container {
         }
         this.persistInventory(this.localState?.inventory ?? restoredInv);
         this.gameMenu.setLoadout(this.localState?.loadout ?? savedLoadout);
-        this.gameMenu.setInventory(this.localState?.inventory ?? restoredInv);
+        this.gameMenu.setInventory(
+          this.localState?.inventory ?? restoredInv,
+          this.localState?.itemStacks,
+        );
         this.inventoryPanel.setInventory(
           this.localState?.inventory ?? restoredInv,
           this.localState?.loadout ?? savedLoadout,
+          this.localState?.itemStacks,
         );
         this.currentMatch = message.match;
         this.matchScoreboard.setMatch(message.match, this.localId);
@@ -786,12 +801,10 @@ export class GameScreen extends Container {
           this.previousBallHitSeqs.set(ball.id, ball.hitSeq);
         }
 
-        this.trampolines = message.trampolines;
         // Older servers don't send pickups yet — default instead of crashing.
         this.pickups = message.pickups ?? [];
         this.ballPredictor.onSnapshot(message.balls);
         this.worldScene?.syncHoles(message.holes);
-        this.worldScene?.syncTrampolines(message.trampolines);
         this.worldScene?.syncPickups(this.pickups);
         this.syncPickupLabels();
         this.reconcileLocalPlayer(message.players);
@@ -801,7 +814,7 @@ export class GameScreen extends Container {
         // real name only shows up once it comes back through a state tick.
         for (const player of message.players) {
           const entity = this.entities.get(player.id);
-          const stats = resolveStats(player.loadout);
+          const stats = resolveStats(player.loadout, player.itemStacks);
           const effectiveColor = resolvePlayerColor(stats, player.color);
           if (entity) {
             entity.setName(player.name);
@@ -813,12 +826,16 @@ export class GameScreen extends Container {
             this.localState.loadout = player.loadout
               ? { ...player.loadout }
               : undefined;
+            this.localState.itemStacks = player.itemStacks
+              ? { ...player.itemStacks }
+              : undefined;
             // Walk-over pickups land here: mirror server truth into the HUD.
             this.localState.inventory = normalizeInventory(player.inventory);
             this.persistInventory(this.localState.inventory);
             this.inventoryPanel.setInventory(
               this.localState.inventory,
               this.localState.loadout,
+              this.localState.itemStacks,
             );
             this.syncMenuLoadout();
           }
@@ -906,11 +923,16 @@ export class GameScreen extends Container {
     if (!this.gameMenu.isOpen) return;
     const loadout = this.localState?.loadout ?? {};
     const inv = this.localState?.inventory ?? [];
-    const key = `${loadout.ball ?? ""},${loadout.club ?? ""},${loadout.outfit ?? ""}|${inv.join(",")}`;
+    const stacks = this.localState?.itemStacks ?? {};
+    const stacksKey = Object.entries(stacks)
+      .map(([k, v]) => `${k}:${v}`)
+      .sort()
+      .join(",");
+    const key = `${loadout.ball ?? ""},${loadout.club ?? ""},${loadout.outfit ?? ""}|${inv.join(",")}|${stacksKey}`;
     if (key === this.lastMenuSyncKey) return;
     this.lastMenuSyncKey = key;
     this.gameMenu.setLoadout(loadout);
-    this.gameMenu.setInventory(inv);
+    this.gameMenu.setInventory(inv, stacks);
   }
 
   private spawnEntity(snapshot: PlayerState): void {
@@ -923,7 +945,7 @@ export class GameScreen extends Container {
     this.entities.set(snapshot.id, entity);
     this.addChild(entity);
     const effectiveColor = resolvePlayerColor(
-      resolveStats(snapshot.loadout),
+      resolveStats(snapshot.loadout, snapshot.itemStacks),
       snapshot.color,
     );
     this.worldScene?.spawn(snapshot.id, snapshot.x, snapshot.y, effectiveColor);
@@ -962,7 +984,7 @@ export class GameScreen extends Container {
         style: {
           fontFamily: "monospace",
           fontSize: 12,
-          fill: 0xffffff,
+          fill: item?.color ?? 0xffffff,
           stroke: { color: 0x000000, width: 3 },
           align: "center",
         },

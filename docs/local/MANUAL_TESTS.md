@@ -1,7 +1,7 @@
-# Manual tests — no bots, smaller map, effect cards + pickups, lamp & shadows (2026-10-12)
+# Manual tests — item stacking (max 5), 2 distinct colored effect cards, persistent pickups with step-off re-entry (2026-10-12)
 
 Start the dev loop: `npm run dev` (Bun server on port 3332, Vite client on http://localhost:3331).
-Automated (`bun test` — 138 passing tests), linter (`eslint`) und Production-Build (`npm run build`) sind grün.
+Automated (`bun test` — 166 passing tests), linter (`eslint`), server `tsc`, und Production-Build (`npm run build`) sind grün.
 Folgendes im Browser prüfen (je 2 Fenster zum Vergleichen):
 
 ## 1. No bots & smaller map
@@ -11,13 +11,16 @@ Folgendes im Browser prüfen (je 2 Fenster zum Vergleichen):
 - [ ] Kompakte Map: Engagements fühlen sich eng an, Tritte ins Leere (ewiges Laufen ohne Gegner) sind selten.
 - [ ] Match-Start teleportiert auf die beiden Tees nahe der Mitte.
 
-## 2. Effect cards im Menü
+## 2. Effect cards & Stacking im Menü
 
-- [ ] `⚙ MENU (ESC)` öffnen, Tab `⛳ Items` wählen: 11 Items in 3 Slots (ball/club/outfit) mit Name + Beschreibung sichtbar.
+- [ ] `⚙ MENU (ESC)` öffnen, Tab `⛳ Items` wählen: 10 Items in 3 Slots (ball/club/outfit) mit Name + Beschreibung sichtbar. Jedes Item besitzt links einen farbigen Akzentstreifen und einen farbigen Slot-Tag entsprechend seiner Item-Farbe.
 - [ ] `Cannonball` → `EQUIP`: Button wird grün (`EQUIPPED`), andere Ball-Items bleiben auf `EQUIP` (1 pro Slot).
-- [ ] Erneut klicken: Unequip, Button zurück auf `EQUIP`.
+- [ ] Erneut klicken: Unequip, Button zurück auf `EQUIP`. Menü-Klicks stacken niemals über 1 hinaus.
 - [ ] Menü schließen, Seite neu laden, Menü öffnen: Ausrüstung ist noch da (localStorage-Persistenz).
-- [ ] Neue Karten vorhanden: `Titan Ball` (ball), `Tailwind` (club), `Minnow` (outfit).
+- [ ] Stack-Indikator: Bei mehrfach gesammelten Items zeigt das Menü ein goldenes `x2` bis `x5` Batch-Label neben dem Item-Namen.
+- [ ] Skalierte Effekt-Texte: Bei `x2` bis `x5` skalieren Multiplikatoren (mult^n) und Additionen (add*n) sichtbar im Text.
+- [ ] `MAX`-Pill: Items, deren Effekte am `STAT_LIMITS`-Cap anschlagen, zeigen ein gut sichtbares oranges `[MAX]`-Badge.
+- [ ] `DROP`-Button: Klick auf `DROP` dekrementiert um 1 Stack (z. B. x5 ➔ x4 ➔ ... ➔ x1). Erst bei 0 Stacks wird das Item aus dem Inventar entfernt und der Slot geleert.
 
 ## 3. Physics & Damage
 
@@ -30,19 +33,25 @@ Folgendes im Browser prüfen (je 2 Fenster zum Vergleichen):
 
 - [ ] `Cannonball`: eigener Ball sichtbar größer + dunkler Ring; `Marble Mini`: sichtbar kleiner.
 - [ ] `Swift Tee` / `Tank Suit`: eigene Figur sichtbar schmaler/größer.
+- [ ] `Titan Ball (Größen-Skalierung)`: Bei jedem Betreten wächst die Spielfigur deutlich an (1x: 1.38x, 2x: 1.9x, 3x: 2.6x, 4x: 3.6x, 5x: 5.0x Riesengestalt). Auch der eigene Ball wächst bis auf das ~7.6-fache heran.
+- [ ] Namensschild, Chat-Bubble und Schlagladebalken wandern automatisch mit der Figurenhöhe mit und schweben sauber über dem Kopf.
 - [ ] `Sniper`: Treffer-Ring (Range Indicator) um den Spieler ist sichtbar größer.
 - [ ] Mit `Driver X` laden: Lande-Marker liegt weiter weg als ohne Item.
 - [ ] Zweites Fenster: fremde Ballgröße, -farbe und Spielergröße sind ebenfalls sichtbar (Server-Sync).
 
-## 5. Map pickups
+## 5. Map pickups (2 Distinct Colored Effect Cards & Stacking bis 5)
 
-- [ ] 200 units above the map middle there are 3 gold circles side by side (Titan Ball left, Tailwind center, Minnow right).
-- [ ] Above each circle floats a white label with the card name and its effect text.
-- [ ] Labels track their circles while moving the camera; circles sit flat on the ground.
-- [ ] Walking into a circle equips its card (menu Items tab shows it equipped) and announces `picked up …!` in chat.
-- [ ] Titan Ball visibly enlarges ball and body; Tailwind makes shots faster but walking slower; Minnow shrinks the body.
-- [ ] The second window sees the same circles and the other player's equipped effects.
-- [ ] After page reload the circles are still there and can be picked up again.
+- [ ] 200 units über den Tees befinden sich genau 2 farbige Kreise:
+  - Links: **Titan Ball** in Electric Blue (`#3b82f6`) mit blauem schwebenden Text, ausgerichtet an Bahn 1.
+  - Rechts: **Tailwind** in Hot Pink (`#ec4899`) mit pinkem schwebenden Text, ausgerichtet an Bahn 2.
+  - Die 3. Karte (Minnow) existiert nicht mehr.
+- [ ] **Kein Despawn**: Pickups verschwinden NIEMALS beim Betreten; Kreise und Labels bleiben dauerhaft sichtbar in der Welt.
+- [ ] **Erster Eintritt**: Hineinlaufen rüstet das Item aus bzw. packt es ins Inventar (Chat meldet `picked up …!`).
+- [ ] **Kein Stand-Still-Farming**: Im Kreis stehenbleiben stackt nicht durch; der Stack bleibt stabil bei 1.
+- [ ] **Step-Off & Re-Entry Stacking**: Sobald man aus dem Kreis heraustritt und direkt wieder hineinläuft, erhöht sich der Stack sofort auf `x2` (Chat meldet `... stacked to x2!`).
+- [ ] **Stack-Cap bei 5**: Weiteres Heraustreten und Hineinlaufen stackt bis `x5`.
+- [ ] **Max Stack Schutz**: Erneutes Betreten bei 5 Stacks meldet `... is already at max stacks!` und belässt den Stack bei 5.
+- [ ] **HUD Inventory**: Unten rechts zeigt das Inventar-Panel die Stacks live an (z. B. `▸ Tailwind x5`).
 
 ## 6. Light pool in the middle
 
@@ -59,6 +68,7 @@ Folgendes im Browser prüfen (je 2 Fenster zum Vergleichen):
 ## 8. Robustheit & no regressions
 
 - [ ] Während Menü offen: keine Bewegung/Schwung möglich; nach Schließen alles normal.
-- [ ] Nach Reconnect (Seite neu laden): Loadout wird automatisch re-equipped, kein Snap-Fehler an der Position.
+- [ ] Nach Reconnect (Seite neu laden): Loadout und Stacks werden automatisch synchronisiert, kein Snap-Fehler.
 - [ ] Characters, animations, name labels, range indicator, and landing marker look unchanged.
 - [ ] Camera still follows the local player; movement feels unchanged.
+
